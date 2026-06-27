@@ -1,0 +1,29 @@
+framework:
+    messenger:
+        default_bus: command.bus
+
+        buses:
+            command.bus:
+                # Each handled message commits in a single Doctrine transaction.
+                middleware:
+                    - doctrine_transaction
+
+        transports:
+            # Inbound integration commands from aeroflow-core over RabbitMQ.
+            # The custom serializer rebuilds the message from the JSON body, so this
+            # service stays coupled to the contract, not to Core's PHP classes.
+            async:
+                dsn: '%env(MESSENGER_TRANSPORT_DSN)%'
+                serializer: App\Playback\Infrastructure\Messaging\AnnouncementPlaybackSerializer
+                retry_strategy:
+                    max_retries: 3
+                    delay: 1000
+
+        routing:
+            # Inbound only; handlers are bound by attribute, nothing to route out yet.
+
+when@test:
+    framework:
+        messenger:
+            transports:
+                async: 'in-memory://'
