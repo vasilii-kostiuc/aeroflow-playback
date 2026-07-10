@@ -4,8 +4,11 @@ framework:
 
         buses:
             command.bus:
-                # Each handled message commits in a single Doctrine transaction.
+                # Order matters: the integration-event middleware wraps
+                # doctrine_transaction so buffered outbound events are released only
+                # after the transaction commits (and discarded on rollback).
                 middleware:
+                    - App\Playback\Infrastructure\Messenger\IntegrationEventTransactionMiddleware
                     - doctrine_transaction
 
         transports:
@@ -18,12 +21,22 @@ framework:
                 retry_strategy:
                     max_retries: 3
                     delay: 1000
+            # Outbound integration events back to aeroflow-core over RabbitMQ.
+            # Contract JSON; core discriminates by the `event` field in the body,
+            # not by this service's PHP class names.
+            playback_events:
+                dsn: '%env(MESSENGER_PLAYBACK_EVENTS_DSN)%'
+                serializer: App\Playback\Infrastructure\Messaging\PlaybackEventSerializer
 
         routing:
-            # Inbound only; handlers are bound by attribute, nothing to route out yet.
+            # Every outbound integration event travels to core; commands stay local.
+            App\Playback\Application\IntegrationEvent\AnnouncementPlaybackEvent: playback_events
 
 when@test:
     framework:
         messenger:
             transports:
                 async: 'in-memory://'
+                # Keep the outbound transport in-memory in tests so publishing can be
+                # asserted without a running RabbitMQ.
+                playback_events: 'in-memory://'

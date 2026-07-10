@@ -24,3 +24,8 @@ services:
 
     App\Playback\Domain\Repository\PlaybackJobRepositoryInterface:
         alias: App\Playback\Infrastructure\Persistence\Doctrine\PlaybackJobRepository
+
+    # Post-commit publication: events buffered during the command transaction are
+    # released by IntegrationEventTransactionMiddleware only after the commit.
+    App\Playback\Application\PlaybackEventPublisherInterface:
+        alias: App\Playback\Infrastructure\Event\DeferredPlaybackEventPublisher

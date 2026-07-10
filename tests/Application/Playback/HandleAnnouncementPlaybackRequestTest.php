@@ -5,39 +5,71 @@ declare(strict_types=1);
 namespace App\Tests\Application\Playback;
 
 use App\Playback\Application\HandleAnnouncementPlaybackRequest;
+use App\Playback\Application\PlaybackQueueDispatcher;
 use App\Playback\Application\RequestAnnouncementPlayback;
-use App\Playback\Domain\Entity\PlaybackJob;
 use App\Playback\Domain\Enum\PlaybackJobStatus;
-use App\Playback\Domain\Repository\PlaybackJobRepositoryInterface;
+use App\Tests\Application\Playback\Support\InMemoryPlaybackJobRepository;
+use App\Tests\Application\Playback\Support\RecordingPlaybackEventPublisher;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Uid\Uuid;
 
 final class HandleAnnouncementPlaybackRequestTest extends TestCase
 {
-    public function testCreatesPendingPlaybackJob(): void
+    private InMemoryPlaybackJobRepository $jobs;
+    private RecordingPlaybackEventPublisher $events;
+    private HandleAnnouncementPlaybackRequest $handler;
+
+    protected function setUp(): void
     {
-        $jobs = new InMemoryPlaybackJobRepository();
-        $handler = new HandleAnnouncementPlaybackRequest($jobs);
+        $this->jobs = new InMemoryPlaybackJobRepository();
+        $this->events = new RecordingPlaybackEventPublisher();
+        $dispatcher = new PlaybackQueueDispatcher($this->jobs, $this->events);
+        $this->handler = new HandleAnnouncementPlaybackRequest($this->jobs, $this->events, $dispatcher);
+    }
 
-        $handler($this->request($messageId = Uuid::v7()->toRfc4122()));
+    public function testCreatesJobPublishesQueuedAndStartsItOnIdleQueue(): void
+    {
+        ($this->handler)($this->request($messageId = Uuid::v7()->toRfc4122()));
 
-        self::assertCount(1, $jobs->saved);
-        $job = array_values($jobs->saved)[0];
-        self::assertSame(PlaybackJobStatus::Pending, $job->getStatus());
+        self::assertCount(1, $this->jobs->saved);
+        $job = array_values($this->jobs->saved)[0];
         self::assertSame($messageId, $job->getSourceMessageId()->toRfc4122());
         self::assertSame(100, $job->getPriority());
+        // The queue was idle, so the dispatcher starts the new job right away.
+        self::assertSame(PlaybackJobStatus::Playing, $job->getStatus());
+        self::assertSame(
+            ['announcement_playback.queued', 'announcement_playback.started'],
+            $this->events->eventNames(),
+        );
+    }
+
+    public function testNewJobWaitsWhileAnotherIsPlaying(): void
+    {
+        ($this->handler)($this->request(Uuid::v7()->toRfc4122()));
+        ($this->handler)($this->request(Uuid::v7()->toRfc4122()));
+
+        [$first, $second] = array_values($this->jobs->saved);
+        self::assertSame(PlaybackJobStatus::Playing, $first->getStatus());
+        self::assertSame(PlaybackJobStatus::Pending, $second->getStatus());
+        // Second request queued but did not start: only one Started was published.
+        self::assertSame(
+            ['announcement_playback.queued', 'announcement_playback.started', 'announcement_playback.queued'],
+            $this->events->eventNames(),
+        );
     }
 
     public function testIsIdempotentForRedeliveredMessageId(): void
     {
-        $jobs = new InMemoryPlaybackJobRepository();
-        $handler = new HandleAnnouncementPlaybackRequest($jobs);
-
         $message = $this->request(Uuid::v7()->toRfc4122());
-        $handler($message);
-        $handler($message);
+        ($this->handler)($message);
+        ($this->handler)($message);
 
-        self::assertCount(1, $jobs->saved);
+        self::assertCount(1, $this->jobs->saved);
+        // The redelivery neither re-published Queued nor produced a second Started.
+        self::assertSame(
+            ['announcement_playback.queued', 'announcement_playback.started'],
+            $this->events->eventNames(),
+        );
     }
 
     private function request(string $messageId): RequestAnnouncementPlayback
@@ -57,21 +89,5 @@ final class HandleAnnouncementPlaybackRequestTest extends TestCase
             occurredAt: '2026-06-26T10:00:00+00:00',
             schemaVersion: 1,
         );
-    }
-}
-
-final class InMemoryPlaybackJobRepository implements PlaybackJobRepositoryInterface
-{
-    /** @var array<string,PlaybackJob> */
-    public array $saved = [];
-
-    public function save(PlaybackJob $job): void
-    {
-        $this->saved[$job->getSourceMessageId()->toRfc4122()] = $job;
-    }
-
-    public function findBySourceMessageId(Uuid $sourceMessageId): ?PlaybackJob
-    {
-        return $this->saved[$sourceMessageId->toRfc4122()] ?? null;
     }
 }

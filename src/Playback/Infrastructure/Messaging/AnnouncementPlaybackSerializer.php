@@ -18,6 +18,11 @@ use Symfony\Component\Messenger\Transport\Serialization\SerializerInterface;
  * class name. It reads only the JSON body and rebuilds its own message, ignoring the
  * producer's `type` header. This keeps the two services coupled to the contract, not
  * to each other's code.
+ *
+ * Assumes the announcement_playback queue carries exactly one message type, so the
+ * body is decoded unconditionally. The slice that adds a second inbound command
+ * (e.g. CancelAnnouncementPlayback) must introduce the `command` discriminator field
+ * per ADR 002 (aeroflow-docs/adr/002-inbound-message-discrimination.md).
  */
 final class AnnouncementPlaybackSerializer implements SerializerInterface
 {
