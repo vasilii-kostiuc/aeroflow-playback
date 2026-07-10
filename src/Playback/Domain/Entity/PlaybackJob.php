@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Playback\Domain\Entity;
 
 use App\Playback\Domain\Enum\PlaybackJobStatus;
+use App\Playback\Domain\Exception\InvalidPlaybackJobTransition;
 use DateTimeImmutable;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Bridge\Doctrine\Types\UuidType;
@@ -15,8 +16,10 @@ use Symfony\Component\Uid\Uuid;
  * play one prepared audio sequence. It carries no airport domain concepts — it never
  * knows about flights, gates or counters, only the neutral sequence it received.
  *
- * First slice: jobs are created in the Pending state from RequestAnnouncementPlayback.
- * The priority queue, interruption and emergency mode arrive in later slices.
+ * Lifecycle (second slice): Pending -> Playing -> Completed | Failed. The queue is
+ * strictly sequential — an active job is never interrupted by an ordinary one; only
+ * the future emergency mode may interrupt. Scheduled, Interrupted and Cancelled
+ * belong to later slices.
  */
 #[ORM\Entity]
 #[ORM\Table(name: 'playback_job')]
@@ -90,6 +93,57 @@ class PlaybackJob
         $job->createdAt = new DateTimeImmutable();
 
         return $job;
+    }
+
+    /**
+     * Begin playing this job. Only a Pending job may start (single-active is the
+     * dispatcher's and the database's concern; the aggregate guards its own status).
+     */
+    public function start(): void
+    {
+        if ($this->status !== PlaybackJobStatus::Pending) {
+            throw InvalidPlaybackJobTransition::forJob($this->id, $this->status, 'start');
+        }
+
+        $this->status = PlaybackJobStatus::Playing;
+    }
+
+    /**
+     * Mark the job as played to the end. Idempotent: completing an already
+     * Completed job is a no-op and reports false so the caller does not publish
+     * the completion event twice.
+     */
+    public function complete(): bool
+    {
+        if ($this->status === PlaybackJobStatus::Completed) {
+            return false;
+        }
+
+        if ($this->status !== PlaybackJobStatus::Playing) {
+            throw InvalidPlaybackJobTransition::forJob($this->id, $this->status, 'complete');
+        }
+
+        $this->status = PlaybackJobStatus::Completed;
+
+        return true;
+    }
+
+    /**
+     * Mark the job as failed by the audio output. Idempotent like complete().
+     */
+    public function fail(): bool
+    {
+        if ($this->status === PlaybackJobStatus::Failed) {
+            return false;
+        }
+
+        if ($this->status !== PlaybackJobStatus::Playing) {
+            throw InvalidPlaybackJobTransition::forJob($this->id, $this->status, 'fail');
+        }
+
+        $this->status = PlaybackJobStatus::Failed;
+
+        return true;
     }
 
     public function getId(): Uuid
