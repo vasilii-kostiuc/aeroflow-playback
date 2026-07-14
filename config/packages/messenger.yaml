@@ -27,16 +27,31 @@ framework:
             playback_events:
                 dsn: '%env(MESSENGER_PLAYBACK_EVENTS_DSN)%'
                 serializer: App\Playback\Infrastructure\Messaging\PlaybackEventSerializer
+            # Outbound commands to the audio agent (task 016). Contract JSON with
+            # the `command` discriminator in the body (ADR 002).
+            agent_commands:
+                dsn: '%env(MESSENGER_AGENT_COMMANDS_DSN)%'
+                serializer: App\Playback\Infrastructure\Messaging\AgentCommandSerializer
+            # Inbound status events from the audio agent, discriminated by `event`.
+            agent_events:
+                dsn: '%env(MESSENGER_AGENT_EVENTS_DSN)%'
+                serializer: App\Playback\Infrastructure\Messaging\AgentEventSerializer
+                retry_strategy:
+                    max_retries: 3
+                    delay: 1000
 
         routing:
             # Every outbound integration event travels to core; commands stay local.
             App\Playback\Application\IntegrationEvent\AnnouncementPlaybackEvent: playback_events
+            App\Playback\Application\Agent\PlayAudioSequence: agent_commands
 
 when@test:
     framework:
         messenger:
             transports:
                 async: 'in-memory://'
-                # Keep the outbound transport in-memory in tests so publishing can be
-                # asserted without a running RabbitMQ.
+                # Keep the outbound transports in-memory in tests so publishing can
+                # be asserted without a running RabbitMQ.
                 playback_events: 'in-memory://'
+                agent_commands: 'in-memory://'
+                agent_events: 'in-memory://'

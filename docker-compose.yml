@@ -13,6 +13,8 @@ services:
       # Shares aeroflow-core's RabbitMQ over the host (core publishes port 5672).
       MESSENGER_TRANSPORT_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/announcement_playback
       MESSENGER_PLAYBACK_EVENTS_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/playback_events
+      MESSENGER_AGENT_COMMANDS_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/agent_commands
+      MESSENGER_AGENT_EVENTS_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/agent_events
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -28,7 +30,7 @@ services:
       context: .
       dockerfile: _docker/Dockerfile
     container_name: aeroflow_playback_worker
-    command: php bin/console messenger:consume async -vv
+    command: php bin/console messenger:consume async agent_events -vv
     restart: unless-stopped
     volumes:
       - .:/var/www
@@ -37,6 +39,8 @@ services:
       DATABASE_URL: postgresql://aeroflow:aeroflow@aeroflow_playback_postgres:5432/aeroflow_playback?serverVersion=16&charset=utf8
       MESSENGER_TRANSPORT_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/announcement_playback
       MESSENGER_PLAYBACK_EVENTS_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/playback_events
+      MESSENGER_AGENT_COMMANDS_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/agent_commands
+      MESSENGER_AGENT_EVENTS_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/agent_events
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
