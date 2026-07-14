@@ -12,6 +12,7 @@ use App\Playback\Application\PlaybackQueueDispatcher;
 use App\Playback\Domain\Entity\PlaybackJob;
 use App\Playback\Domain\Enum\PlaybackJobStatus;
 use App\Tests\Application\Playback\Support\InMemoryPlaybackJobRepository;
+use App\Tests\Application\Playback\Support\RecordingAgentCommandPublisher;
 use App\Tests\Application\Playback\Support\RecordingPlaybackEventPublisher;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Uid\Uuid;
@@ -20,13 +21,15 @@ final class HandleCompletePlaybackJobTest extends TestCase
 {
     private InMemoryPlaybackJobRepository $jobs;
     private RecordingPlaybackEventPublisher $events;
+    private RecordingAgentCommandPublisher $agentCommands;
     private HandleCompletePlaybackJob $handler;
 
     protected function setUp(): void
     {
         $this->jobs = new InMemoryPlaybackJobRepository();
         $this->events = new RecordingPlaybackEventPublisher();
-        $dispatcher = new PlaybackQueueDispatcher($this->jobs, $this->events);
+        $this->agentCommands = new RecordingAgentCommandPublisher();
+        $dispatcher = new PlaybackQueueDispatcher($this->jobs, $this->events, $this->agentCommands);
         $this->handler = new HandleCompletePlaybackJob($this->jobs, $this->events, $dispatcher);
     }
 
@@ -83,7 +86,7 @@ final class HandleCompletePlaybackJobTest extends TestCase
         $active->start();
         $waiting = $this->queueJob(priority: 50);
 
-        $failHandler = new HandleFailPlaybackJob($this->jobs, new PlaybackQueueDispatcher($this->jobs, $this->events));
+        $failHandler = new HandleFailPlaybackJob($this->jobs, new PlaybackQueueDispatcher($this->jobs, $this->events, $this->agentCommands));
         $failHandler(new FailPlaybackJob($active->getId()->toRfc4122()));
 
         self::assertSame(PlaybackJobStatus::Failed, $active->getStatus());

@@ -29,3 +29,6 @@ services:
     # released by IntegrationEventTransactionMiddleware only after the commit.
     App\Playback\Application\PlaybackEventPublisherInterface:
         alias: App\Playback\Infrastructure\Event\DeferredPlaybackEventPublisher
+
+    App\Playback\Application\Agent\AgentCommandPublisherInterface:
+        alias: App\Playback\Infrastructure\Event\DeferredAgentCommandPublisher
