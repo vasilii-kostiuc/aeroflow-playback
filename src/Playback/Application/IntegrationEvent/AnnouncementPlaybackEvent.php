@@ -30,6 +30,7 @@ abstract readonly class AnnouncementPlaybackEvent
     final protected function __construct(
         public string $event,
         PlaybackJob $job,
+        public ?string $reason = null,
     ) {
         $this->messageId = Uuid::v7()->toRfc4122();
         $this->correlationId = $job->getAnnouncementId()->toRfc4122();

@@ -29,16 +29,21 @@ final class PlaybackEventSerializer implements SerializerInterface
             ));
         }
 
+        $body = [
+            'event' => $message->event,
+            'messageId' => $message->messageId,
+            'correlationId' => $message->correlationId,
+            'announcementId' => $message->announcementId,
+            'jobId' => $message->jobId,
+            'occurredAt' => $message->occurredAt,
+            'schemaVersion' => $message->schemaVersion,
+        ];
+        if ($message->reason !== null) {
+            $body['reason'] = $message->reason;
+        }
+
         return [
-            'body' => json_encode([
-                'event' => $message->event,
-                'messageId' => $message->messageId,
-                'correlationId' => $message->correlationId,
-                'announcementId' => $message->announcementId,
-                'jobId' => $message->jobId,
-                'occurredAt' => $message->occurredAt,
-                'schemaVersion' => $message->schemaVersion,
-            ], JSON_THROW_ON_ERROR),
+            'body' => json_encode($body, JSON_THROW_ON_ERROR),
             'headers' => [
                 'type' => $message->event,
                 'Content-Type' => 'application/json',

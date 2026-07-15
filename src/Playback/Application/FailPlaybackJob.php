@@ -10,7 +10,9 @@ namespace App\Playback\Application;
  */
 final readonly class FailPlaybackJob
 {
-    public function __construct(public string $jobId)
-    {
+    public function __construct(
+        public string $jobId,
+        public ?string $reason = null,
+    ) {
     }
 }
