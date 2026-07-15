@@ -33,7 +33,7 @@ final class HandleAgentPlaybackEventTest extends TestCase
         $dispatcher = new PlaybackQueueDispatcher($this->jobs, $this->events, $this->agentCommands);
         $this->handler = new HandleAgentPlaybackEvent(
             new HandleCompletePlaybackJob($this->jobs, $this->events, $dispatcher),
-            new HandleFailPlaybackJob($this->jobs, $dispatcher),
+            new HandleFailPlaybackJob($this->jobs, $this->events, $dispatcher),
             new NullLogger(),
         );
     }
@@ -65,7 +65,12 @@ final class HandleAgentPlaybackEventTest extends TestCase
 
         self::assertSame(PlaybackJobStatus::Failed, $active->getStatus());
         self::assertSame(PlaybackJobStatus::Playing, $waiting->getStatus());
-        self::assertSame(['announcement_playback.started'], $this->events->eventNames());
+        // The failure is reported to core with the agent's reason, then the queue moves on.
+        self::assertSame(
+            ['announcement_playback.failed', 'announcement_playback.started'],
+            $this->events->eventNames(),
+        );
+        self::assertSame('player exited 1', $this->events->published[0]->reason);
     }
 
     public function testStartedEventChangesNothing(): void

@@ -43,6 +43,6 @@ final readonly class HandleAgentPlaybackEvent
             'jobId' => $event->jobId,
             'reason' => $event->reason ?? 'no reason given',
         ]);
-        ($this->failHandler)(new FailPlaybackJob($event->jobId));
+        ($this->failHandler)(new FailPlaybackJob($event->jobId, $event->reason));
     }
 }

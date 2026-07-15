@@ -80,18 +80,30 @@ final class HandleCompletePlaybackJobTest extends TestCase
         self::assertSame([], $this->events->published);
     }
 
-    public function testFailedJobAdvancesQueueWithoutCompletionEvent(): void
+    public function testFailedJobPublishesFailedEventAndAdvancesQueue(): void
     {
         $active = $this->queueJob(priority: 100);
         $active->start();
         $waiting = $this->queueJob(priority: 50);
 
-        $failHandler = new HandleFailPlaybackJob($this->jobs, new PlaybackQueueDispatcher($this->jobs, $this->events, $this->agentCommands));
-        $failHandler(new FailPlaybackJob($active->getId()->toRfc4122()));
+        $failHandler = new HandleFailPlaybackJob(
+            $this->jobs,
+            $this->events,
+            new PlaybackQueueDispatcher($this->jobs, $this->events, $this->agentCommands),
+        );
+        $failHandler(new FailPlaybackJob($active->getId()->toRfc4122(), 'player exited 1'));
 
         self::assertSame(PlaybackJobStatus::Failed, $active->getStatus());
         self::assertSame(PlaybackJobStatus::Playing, $waiting->getStatus());
-        self::assertSame(['announcement_playback.started'], $this->events->eventNames());
+        self::assertSame(
+            ['announcement_playback.failed', 'announcement_playback.started'],
+            $this->events->eventNames(),
+        );
+        self::assertSame('player exited 1', $this->events->published[0]->reason);
+
+        // A redelivered failure publishes nothing twice.
+        $failHandler(new FailPlaybackJob($active->getId()->toRfc4122(), 'player exited 1'));
+        self::assertSame(1, count(array_keys($this->events->eventNames(), 'announcement_playback.failed', true)));
     }
 
     private function queueJob(int $priority): PlaybackJob
