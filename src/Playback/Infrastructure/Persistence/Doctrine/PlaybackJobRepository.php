@@ -62,4 +62,21 @@ final readonly class PlaybackJobRepository implements PlaybackJobRepositoryInter
 
         return $jobs[0] ?? null;
     }
+
+    public function findLatestByAnnouncementIdForUpdate(Uuid $announcementId): ?PlaybackJob
+    {
+        $jobs = $this->entityManager->createQueryBuilder()
+            ->select('job')
+            ->from(PlaybackJob::class, 'job')
+            ->where('job.announcementId = :announcementId')
+            ->setParameter('announcementId', $announcementId)
+            ->orderBy('job.createdAt', 'DESC')
+            ->addOrderBy('job.id', 'DESC')
+            ->setMaxResults(1)
+            ->getQuery()
+            ->setLockMode(LockMode::PESSIMISTIC_WRITE)
+            ->getResult();
+
+        return $jobs[0] ?? null;
+    }
 }

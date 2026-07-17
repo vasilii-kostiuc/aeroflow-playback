@@ -60,4 +60,18 @@ final class InMemoryPlaybackJobRepository implements PlaybackJobRepositoryInterf
 
         return $pending[0] ?? null;
     }
+
+    public function findLatestByAnnouncementIdForUpdate(Uuid $announcementId): ?PlaybackJob
+    {
+        $matching = array_values(array_filter(
+            $this->saved,
+            static fn (PlaybackJob $job): bool => $job->getAnnouncementId()->equals($announcementId),
+        ));
+
+        // Same order as the Doctrine implementation: newest first.
+        usort($matching, static fn (PlaybackJob $a, PlaybackJob $b): int => [$b->getCreatedAt(), $b->getId()->toRfc4122()]
+            <=> [$a->getCreatedAt(), $a->getId()->toRfc4122()]);
+
+        return $matching[0] ?? null;
+    }
 }

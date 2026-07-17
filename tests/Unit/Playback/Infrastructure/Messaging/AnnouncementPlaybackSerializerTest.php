@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Unit\Playback\Infrastructure\Messaging;
 
+use App\Playback\Application\CancelAnnouncementPlayback;
 use App\Playback\Application\RequestAnnouncementPlayback;
 use App\Playback\Infrastructure\Messaging\AnnouncementPlaybackSerializer;
 use LogicException;
@@ -14,11 +15,12 @@ use Symfony\Component\Uid\Uuid;
 
 final class AnnouncementPlaybackSerializerTest extends TestCase
 {
-    public function testDecodesJsonBodyIntoMessageIgnoringProducerType(): void
+    public function testDecodesRequestBodyDiscriminatedByCommand(): void
     {
         $messageId = Uuid::v7()->toRfc4122();
         $announcementId = Uuid::v7()->toRfc4122();
         $body = json_encode([
+            'command' => 'announcement_playback.request',
             'messageId' => $messageId,
             'correlationId' => $announcementId,
             'announcementId' => $announcementId,
@@ -43,6 +45,75 @@ final class AnnouncementPlaybackSerializerTest extends TestCase
         self::assertSame('check_in_opening', $message->type);
         self::assertSame(100, $message->priority);
         self::assertSame(1, $message->schemaVersion);
+    }
+
+    public function testBodyWithoutCommandDecodesAsLegacyRequest(): void
+    {
+        $announcementId = Uuid::v7()->toRfc4122();
+        $body = json_encode([
+            'messageId' => Uuid::v7()->toRfc4122(),
+            'correlationId' => $announcementId,
+            'announcementId' => $announcementId,
+            'type' => 'check_in_opening',
+            'priority' => 100,
+            'audioSequence' => [['languageCode' => 'ro-MD', 'sortOrder' => 0, 'items' => []]],
+            'occurredAt' => '2026-06-26T10:00:00+00:00',
+            'schemaVersion' => 1,
+        ], JSON_THROW_ON_ERROR);
+
+        $message = (new AnnouncementPlaybackSerializer())->decode(['body' => $body])->getMessage();
+
+        self::assertInstanceOf(RequestAnnouncementPlayback::class, $message);
+        self::assertSame($announcementId, $message->announcementId);
+    }
+
+    public function testDecodesCancelBodyDiscriminatedByCommand(): void
+    {
+        $messageId = Uuid::v7()->toRfc4122();
+        $announcementId = Uuid::v7()->toRfc4122();
+        $body = json_encode([
+            'command' => 'announcement_playback.cancel',
+            'messageId' => $messageId,
+            'correlationId' => $announcementId,
+            'announcementId' => $announcementId,
+            'occurredAt' => '2026-07-17T10:00:00+00:00',
+            'schemaVersion' => 1,
+        ], JSON_THROW_ON_ERROR);
+
+        $message = (new AnnouncementPlaybackSerializer())->decode([
+            'body' => $body,
+            'headers' => ['type' => 'App\\Announcements\\Application\\Playback\\CancelAnnouncementPlayback'],
+        ])->getMessage();
+
+        self::assertInstanceOf(CancelAnnouncementPlayback::class, $message);
+        self::assertSame($messageId, $message->messageId);
+        self::assertSame($announcementId, $message->announcementId);
+        self::assertSame(1, $message->schemaVersion);
+    }
+
+    public function testRejectsUnknownCommand(): void
+    {
+        $this->expectException(MessageDecodingFailedException::class);
+        $this->expectExceptionMessage('Unknown playback command');
+
+        (new AnnouncementPlaybackSerializer())->decode([
+            'body' => json_encode([
+                'command' => 'announcement_playback.explode',
+                'messageId' => Uuid::v7()->toRfc4122(),
+            ], JSON_THROW_ON_ERROR),
+        ]);
+    }
+
+    public function testRejectsCancelBodyMissingRequiredField(): void
+    {
+        $this->expectException(MessageDecodingFailedException::class);
+
+        (new AnnouncementPlaybackSerializer())->decode([
+            'body' => json_encode([
+                'command' => 'announcement_playback.cancel',
+                'messageId' => Uuid::v7()->toRfc4122(),
+            ], JSON_THROW_ON_ERROR),
+        ]);
     }
 
     public function testRejectsBodyMissingRequiredField(): void

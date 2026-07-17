@@ -32,4 +32,12 @@ interface PlaybackJobRepositoryInterface
      * run inside a transaction.
      */
     public function findNextPendingForUpdate(): ?PlaybackJob;
+
+    /**
+     * The most recent job created for an announcement, loaded with a write lock so
+     * a cancel cannot race the queue dispatcher starting the same job; the caller
+     * must therefore run inside a transaction. One announcement produces one job in
+     * practice — "latest" only disambiguates hypothetical redelivery leftovers.
+     */
+    public function findLatestByAnnouncementIdForUpdate(Uuid $announcementId): ?PlaybackJob;
 }

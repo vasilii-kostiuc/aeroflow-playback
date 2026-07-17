@@ -109,6 +109,41 @@ final class PlaybackJobTest extends TestCase
         self::assertSame(PlaybackJobStatus::Failed, $job->getStatus());
     }
 
+    public function testCancelMovesPendingJobToCancelled(): void
+    {
+        $job = $this->pendingJob();
+
+        self::assertTrue($job->cancel());
+        self::assertSame(PlaybackJobStatus::Cancelled, $job->getStatus());
+    }
+
+    public function testCancelIsIdempotentOnCancelledJob(): void
+    {
+        $job = $this->pendingJob();
+        $job->cancel();
+
+        self::assertFalse($job->cancel());
+        self::assertSame(PlaybackJobStatus::Cancelled, $job->getStatus());
+    }
+
+    public function testCancelRejectsPlayingJob(): void
+    {
+        $job = $this->pendingJob();
+        $job->start();
+
+        $this->expectException(InvalidPlaybackJobTransition::class);
+        $job->cancel();
+    }
+
+    public function testCancelledJobCannotBeStarted(): void
+    {
+        $job = $this->pendingJob();
+        $job->cancel();
+
+        $this->expectException(InvalidPlaybackJobTransition::class);
+        $job->start();
+    }
+
     public function testCompletedJobCannotBeRestarted(): void
     {
         $job = $this->pendingJob();

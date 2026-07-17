@@ -16,10 +16,11 @@ use Symfony\Component\Uid\Uuid;
  * play one prepared audio sequence. It carries no airport domain concepts — it never
  * knows about flights, gates or counters, only the neutral sequence it received.
  *
- * Lifecycle (second slice): Pending -> Playing -> Completed | Failed. The queue is
- * strictly sequential — an active job is never interrupted by an ordinary one; only
- * the future emergency mode may interrupt. Scheduled, Interrupted and Cancelled
- * belong to later slices.
+ * Lifecycle: Pending -> Playing -> Completed | Failed, plus Pending -> Cancelled
+ * (task 018 — the dispatcher removes a waiting announcement). The queue is strictly
+ * sequential — an active job is never interrupted by an ordinary one; only the
+ * future emergency mode may interrupt. Scheduled and Interrupted belong to later
+ * slices; cancelling a job that already plays is not a cancel but the future stop.
  */
 #[ORM\Entity]
 #[ORM\Table(name: 'playback_job')]
@@ -142,6 +143,27 @@ class PlaybackJob
         }
 
         $this->status = PlaybackJobStatus::Failed;
+
+        return true;
+    }
+
+    /**
+     * Drop a still-waiting job from the queue. Idempotent like complete(): a second
+     * cancel is a no-op reporting false so the caller does not publish the event
+     * twice. Only Pending cancels — a Playing or finished job is a late cancel and
+     * the application layer's decision, not a valid aggregate transition.
+     */
+    public function cancel(): bool
+    {
+        if ($this->status === PlaybackJobStatus::Cancelled) {
+            return false;
+        }
+
+        if ($this->status !== PlaybackJobStatus::Pending) {
+            throw InvalidPlaybackJobTransition::forJob($this->id, $this->status, 'cancel');
+        }
+
+        $this->status = PlaybackJobStatus::Cancelled;
 
         return true;
     }
