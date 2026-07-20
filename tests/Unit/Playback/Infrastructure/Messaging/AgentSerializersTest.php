@@ -6,6 +6,7 @@ namespace App\Tests\Unit\Playback\Infrastructure\Messaging;
 
 use App\Playback\Application\Agent\AgentPlaybackEvent;
 use App\Playback\Application\Agent\PlayAudioSequence;
+use App\Playback\Application\Agent\StopAudioPlayback;
 use App\Playback\Domain\Entity\PlaybackJob;
 use App\Playback\Infrastructure\Messaging\AgentCommandSerializer;
 use App\Playback\Infrastructure\Messaging\AgentEventSerializer;
@@ -41,6 +42,42 @@ final class AgentSerializersTest extends TestCase
             ['command', 'messageId', 'jobId', 'audioSequence', 'occurredAt', 'schemaVersion'],
             array_keys($body),
         );
+    }
+
+    public function testCommandSerializerEncodesStopContract(): void
+    {
+        $jobId = Uuid::v7()->toRfc4122();
+
+        $encoded = new AgentCommandSerializer()->encode(new Envelope(StopAudioPlayback::forJobId($jobId)));
+
+        $body = json_decode($encoded['body'], true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame('audio.stop', $body['command']);
+        self::assertSame($jobId, $body['jobId']);
+        self::assertSame(1, $body['schemaVersion']);
+        self::assertSame(
+            ['command', 'messageId', 'jobId', 'occurredAt', 'schemaVersion'],
+            array_keys($body),
+        );
+        self::assertSame('audio.stop', $encoded['headers']['type']);
+    }
+
+    public function testEventSerializerDecodesInterruptedEvent(): void
+    {
+        $jobId = Uuid::v7()->toRfc4122();
+
+        $message = new AgentEventSerializer()->decode(['body' => json_encode([
+            'event' => 'audio.playback_interrupted',
+            'messageId' => Uuid::v7()->toRfc4122(),
+            'jobId' => $jobId,
+            'reason' => null,
+            'occurredAt' => '2026-07-17T10:00:00+00:00',
+            'schemaVersion' => 1,
+        ], JSON_THROW_ON_ERROR)])->getMessage();
+
+        self::assertInstanceOf(AgentPlaybackEvent::class, $message);
+        self::assertSame(AgentPlaybackEvent::INTERRUPTED, $message->event);
+        self::assertSame($jobId, $message->jobId);
+        self::assertNull($message->reason);
     }
 
     public function testEventSerializerDecodesAgentEvent(): void

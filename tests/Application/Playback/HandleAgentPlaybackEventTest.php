@@ -8,6 +8,7 @@ use App\Playback\Application\Agent\AgentPlaybackEvent;
 use App\Playback\Application\Agent\HandleAgentPlaybackEvent;
 use App\Playback\Application\HandleCompletePlaybackJob;
 use App\Playback\Application\HandleFailPlaybackJob;
+use App\Playback\Application\HandleInterruptPlaybackJob;
 use App\Playback\Application\PlaybackQueueDispatcher;
 use App\Playback\Domain\Entity\PlaybackJob;
 use App\Playback\Domain\Enum\PlaybackJobStatus;
@@ -34,6 +35,7 @@ final class HandleAgentPlaybackEventTest extends TestCase
         $this->handler = new HandleAgentPlaybackEvent(
             new HandleCompletePlaybackJob($this->jobs, $this->events, $dispatcher),
             new HandleFailPlaybackJob($this->jobs, $this->events, $dispatcher),
+            new HandleInterruptPlaybackJob($this->jobs, $this->events, $dispatcher),
             new NullLogger(),
         );
     }
@@ -81,6 +83,21 @@ final class HandleAgentPlaybackEventTest extends TestCase
 
         self::assertSame(PlaybackJobStatus::Playing, $active->getStatus());
         self::assertSame([], $this->events->published);
+    }
+
+    public function testInterruptedEventInterruptsJobAndAdvancesQueue(): void
+    {
+        $active = $this->playingJob();
+        $waiting = $this->pendingJob();
+
+        ($this->handler)($this->event(AgentPlaybackEvent::INTERRUPTED, $active->getId()->toRfc4122()));
+
+        self::assertSame(PlaybackJobStatus::Interrupted, $active->getStatus());
+        self::assertSame(PlaybackJobStatus::Playing, $waiting->getStatus());
+        self::assertSame(
+            ['announcement_playback.interrupted', 'announcement_playback.started'],
+            $this->events->eventNames(),
+        );
     }
 
     public function testUnknownEventIsIgnored(): void

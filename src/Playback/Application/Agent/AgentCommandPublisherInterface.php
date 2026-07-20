@@ -13,5 +13,5 @@ namespace App\Playback\Application\Agent;
  */
 interface AgentCommandPublisherInterface
 {
-    public function publish(PlayAudioSequence $command): void;
+    public function publish(PlayAudioSequence|StopAudioPlayback $command): void;
 }

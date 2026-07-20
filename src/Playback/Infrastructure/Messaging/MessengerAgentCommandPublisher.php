@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Playback\Infrastructure\Messaging;
 
 use App\Playback\Application\Agent\PlayAudioSequence;
+use App\Playback\Application\Agent\StopAudioPlayback;
 use Symfony\Component\Messenger\MessageBusInterface;
 
 /**
@@ -17,7 +18,7 @@ final readonly class MessengerAgentCommandPublisher
     {
     }
 
-    public function publish(PlayAudioSequence $command): void
+    public function publish(PlayAudioSequence|StopAudioPlayback $command): void
     {
         $this->messageBus->dispatch($command);
     }

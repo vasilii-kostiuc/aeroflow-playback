@@ -16,11 +16,12 @@ use Symfony\Component\Uid\Uuid;
  * play one prepared audio sequence. It carries no airport domain concepts — it never
  * knows about flights, gates or counters, only the neutral sequence it received.
  *
- * Lifecycle: Pending -> Playing -> Completed | Failed, plus Pending -> Cancelled
- * (task 018 — the dispatcher removes a waiting announcement). The queue is strictly
+ * Lifecycle: Pending -> Playing -> Completed | Failed | Interrupted, plus Pending -> Cancelled
+ * (task 018 — the dispatcher removes a waiting announcement). Interrupted is the
+ * operator's stop of the currently sounding job (task 019): the agent confirms the
+ * physical stop and only then the aggregate leaves Playing. The queue is strictly
  * sequential — an active job is never interrupted by an ordinary one; only the
- * future emergency mode may interrupt. Scheduled and Interrupted belong to later
- * slices; cancelling a job that already plays is not a cancel but the future stop.
+ * future emergency mode may preempt. Scheduled belongs to a later slice.
  */
 #[ORM\Entity]
 #[ORM\Table(name: 'playback_job')]
@@ -63,6 +64,9 @@ class PlaybackJob
 
     #[ORM\Column]
     private DateTimeImmutable $createdAt;
+
+    #[ORM\Column(options: ['default' => false])]
+    private bool $stopRequested = false;
 
     private function __construct()
     {
@@ -143,6 +147,34 @@ class PlaybackJob
         }
 
         $this->status = PlaybackJobStatus::Failed;
+
+        return true;
+    }
+
+    /** The operator requested a physical stop; the agent still confirms interruption. */
+    public function requestStop(): bool
+    {
+        if ($this->status !== PlaybackJobStatus::Playing || $this->stopRequested) {
+            return false;
+        }
+
+        $this->stopRequested = true;
+
+        return true;
+    }
+
+    /** Mark the job interrupted by the audio agent. */
+    public function interrupt(): bool
+    {
+        if ($this->status === PlaybackJobStatus::Interrupted) {
+            return false;
+        }
+
+        if ($this->status !== PlaybackJobStatus::Playing) {
+            throw InvalidPlaybackJobTransition::forJob($this->id, $this->status, 'interrupt');
+        }
+
+        $this->status = PlaybackJobStatus::Interrupted;
 
         return true;
     }

@@ -8,6 +8,8 @@ use App\Playback\Application\CompletePlaybackJob;
 use App\Playback\Application\FailPlaybackJob;
 use App\Playback\Application\HandleCompletePlaybackJob;
 use App\Playback\Application\HandleFailPlaybackJob;
+use App\Playback\Application\HandleInterruptPlaybackJob;
+use App\Playback\Application\InterruptPlaybackJob;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Messenger\Attribute\AsMessageHandler;
 
@@ -23,6 +25,7 @@ final readonly class HandleAgentPlaybackEvent
     public function __construct(
         private HandleCompletePlaybackJob $completeHandler,
         private HandleFailPlaybackJob $failHandler,
+        private HandleInterruptPlaybackJob $interruptHandler,
         private LoggerInterface $logger,
     ) {
     }
@@ -32,6 +35,7 @@ final readonly class HandleAgentPlaybackEvent
         match ($event->event) {
             AgentPlaybackEvent::COMPLETED => ($this->completeHandler)(new CompletePlaybackJob($event->jobId)),
             AgentPlaybackEvent::FAILED => $this->handleFailed($event),
+            AgentPlaybackEvent::INTERRUPTED => ($this->interruptHandler)(new InterruptPlaybackJob($event->jobId)),
             AgentPlaybackEvent::STARTED => $this->logger->info('Agent started playing job {jobId}', ['jobId' => $event->jobId]),
             default => $this->logger->warning('Ignoring unknown agent event {event}', ['event' => $event->event]),
         };

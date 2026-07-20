@@ -39,18 +39,49 @@ final class AgentEventSerializer implements SerializerInterface
             }
         }
 
-        return new Envelope(new AgentPlaybackEvent(
+        return RetryCountHeader::restore(new Envelope(new AgentPlaybackEvent(
             event: (string) $data['event'],
             messageId: (string) $data['messageId'],
             jobId: (string) $data['jobId'],
             reason: isset($data['reason']) ? (string) $data['reason'] : null,
             occurredAt: (string) ($data['occurredAt'] ?? ''),
             schemaVersion: (int) ($data['schemaVersion'] ?? 1),
-        ));
+        )), $encodedEnvelope);
     }
 
+    /**
+     * Encoding happens when the retry listener re-sends a failed event to this
+     * same transport; the body must round-trip through decode(). A throwing
+     * encode() would kill the whole worker on the first handler failure.
+     */
     public function encode(Envelope $envelope): array
     {
-        throw new LogicException(self::class.' only decodes inbound agent events.');
+        $message = $envelope->getMessage();
+        if (!$message instanceof AgentPlaybackEvent) {
+            throw new LogicException(sprintf(
+                '%s only encodes agent events, got "%s".',
+                self::class,
+                get_debug_type($message),
+            ));
+        }
+
+        $body = [
+            'event' => $message->event,
+            'messageId' => $message->messageId,
+            'jobId' => $message->jobId,
+        ];
+        if ($message->reason !== null) {
+            $body['reason'] = $message->reason;
+        }
+        $body['occurredAt'] = $message->occurredAt;
+        $body['schemaVersion'] = $message->schemaVersion;
+
+        return [
+            'body' => json_encode($body, JSON_THROW_ON_ERROR),
+            'headers' => RetryCountHeader::add($envelope, [
+                'type' => $message->event,
+                'Content-Type' => 'application/json',
+            ]),
+        ];
     }
 }

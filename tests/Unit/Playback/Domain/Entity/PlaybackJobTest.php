@@ -109,6 +109,25 @@ final class PlaybackJobTest extends TestCase
         self::assertSame(PlaybackJobStatus::Failed, $job->getStatus());
     }
 
+    public function testInterruptMovesPlayingJobToInterrupted(): void
+    {
+        $job = $this->pendingJob();
+        $job->start();
+
+        self::assertTrue($job->interrupt());
+        self::assertSame(PlaybackJobStatus::Interrupted, $job->getStatus());
+        self::assertFalse($job->interrupt());
+    }
+
+    public function testStopRequestIsOnlyAcceptedOnceWhilePlaying(): void
+    {
+        $job = $this->pendingJob();
+        $job->start();
+
+        self::assertTrue($job->requestStop());
+        self::assertFalse($job->requestStop());
+    }
+
     public function testCancelMovesPendingJobToCancelled(): void
     {
         $job = $this->pendingJob();

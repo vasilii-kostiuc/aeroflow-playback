@@ -6,6 +6,7 @@ namespace App\Playback\Infrastructure\Event;
 
 use App\Playback\Application\Agent\AgentCommandPublisherInterface;
 use App\Playback\Application\Agent\PlayAudioSequence;
+use App\Playback\Application\Agent\StopAudioPlayback;
 use App\Playback\Infrastructure\Messaging\MessengerAgentCommandPublisher;
 
 /**
@@ -17,14 +18,14 @@ final class DeferredAgentCommandPublisher implements AgentCommandPublisherInterf
 {
     private int $depth = 0;
 
-    /** @var list<PlayAudioSequence> */
+    /** @var list<PlayAudioSequence|StopAudioPlayback> */
     private array $buffer = [];
 
     public function __construct(private readonly MessengerAgentCommandPublisher $publisher)
     {
     }
 
-    public function publish(PlayAudioSequence $command): void
+    public function publish(PlayAudioSequence|StopAudioPlayback $command): void
     {
         if ($this->depth === 0) {
             $this->publisher->publish($command);

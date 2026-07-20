@@ -15,6 +15,7 @@ final readonly class AgentPlaybackEvent
     public const string STARTED = 'audio.playback_started';
     public const string COMPLETED = 'audio.playback_completed';
     public const string FAILED = 'audio.playback_failed';
+    public const string INTERRUPTED = 'audio.playback_interrupted';
 
     public function __construct(
         public string $event,

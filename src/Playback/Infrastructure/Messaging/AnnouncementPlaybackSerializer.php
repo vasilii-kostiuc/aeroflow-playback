@@ -6,6 +6,7 @@ namespace App\Playback\Infrastructure\Messaging;
 
 use App\Playback\Application\CancelAnnouncementPlayback;
 use App\Playback\Application\RequestAnnouncementPlayback;
+use App\Playback\Application\StopAnnouncementPlayback;
 use JsonException;
 use LogicException;
 use Symfony\Component\Messenger\Envelope;
@@ -29,6 +30,7 @@ final class AnnouncementPlaybackSerializer implements SerializerInterface
 {
     private const string COMMAND_REQUEST = 'announcement_playback.request';
     private const string COMMAND_CANCEL = 'announcement_playback.cancel';
+    private const string COMMAND_STOP = 'announcement_playback.stop';
 
     private const array REQUEST_REQUIRED_KEYS = [
         'messageId',
@@ -61,19 +63,72 @@ final class AnnouncementPlaybackSerializer implements SerializerInterface
 
         $command = $data['command'] ?? self::COMMAND_REQUEST;
 
-        return match ($command) {
+        $envelope = match ($command) {
             self::COMMAND_REQUEST => $this->decodeRequest($data),
             self::COMMAND_CANCEL => $this->decodeCancel($data),
+            self::COMMAND_STOP => $this->decodeStop($data),
             default => throw new MessageDecodingFailedException(sprintf(
                 'Unknown playback command "%s".',
                 is_string($command) ? $command : get_debug_type($command),
             )),
         };
+
+        return RetryCountHeader::restore($envelope, $encodedEnvelope);
     }
 
+    /**
+     * Encoding happens when the retry listener re-sends a failed message to this
+     * same transport. The body must round-trip through decode(), so it is the
+     * inbound contract JSON again — a throwing encode() would kill the whole
+     * worker on the first handler failure.
+     */
     public function encode(Envelope $envelope): array
     {
-        throw new LogicException(self::class.' only decodes inbound playback commands.');
+        $message = $envelope->getMessage();
+
+        $body = match (true) {
+            $message instanceof RequestAnnouncementPlayback => [
+                'command' => self::COMMAND_REQUEST,
+                'messageId' => $message->messageId,
+                'correlationId' => $message->correlationId,
+                'announcementId' => $message->announcementId,
+                'type' => $message->type,
+                'priority' => $message->priority,
+                'audioSequence' => $message->audioSequence,
+                'repeatRule' => $message->repeatRule,
+                'occurredAt' => $message->occurredAt,
+                'schemaVersion' => $message->schemaVersion,
+            ],
+            $message instanceof CancelAnnouncementPlayback => [
+                'command' => self::COMMAND_CANCEL,
+                'messageId' => $message->messageId,
+                'correlationId' => $message->correlationId,
+                'announcementId' => $message->announcementId,
+                'occurredAt' => $message->occurredAt,
+                'schemaVersion' => $message->schemaVersion,
+            ],
+            $message instanceof StopAnnouncementPlayback => [
+                'command' => self::COMMAND_STOP,
+                'messageId' => $message->messageId,
+                'correlationId' => $message->correlationId,
+                'announcementId' => $message->announcementId,
+                'occurredAt' => $message->occurredAt,
+                'schemaVersion' => $message->schemaVersion,
+            ],
+            default => throw new LogicException(sprintf(
+                '%s only encodes playback commands, got "%s".',
+                self::class,
+                get_debug_type($message),
+            )),
+        };
+
+        return [
+            'body' => json_encode($body, JSON_THROW_ON_ERROR),
+            'headers' => RetryCountHeader::add($envelope, [
+                'type' => $body['command'],
+                'Content-Type' => 'application/json',
+            ]),
+        ];
     }
 
     /**
@@ -107,6 +162,20 @@ final class AnnouncementPlaybackSerializer implements SerializerInterface
         $this->assertKeys($data, self::CANCEL_REQUIRED_KEYS);
 
         return new Envelope(new CancelAnnouncementPlayback(
+            messageId: (string) $data['messageId'],
+            correlationId: (string) $data['correlationId'],
+            announcementId: (string) $data['announcementId'],
+            occurredAt: (string) ($data['occurredAt'] ?? ''),
+            schemaVersion: (int) ($data['schemaVersion'] ?? 1),
+        ));
+    }
+
+    /** @param array<string,mixed> $data */
+    private function decodeStop(array $data): Envelope
+    {
+        $this->assertKeys($data, self::CANCEL_REQUIRED_KEYS);
+
+        return new Envelope(new StopAnnouncementPlayback(
             messageId: (string) $data['messageId'],
             correlationId: (string) $data['correlationId'],
             announcementId: (string) $data['announcementId'],
