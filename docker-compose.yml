@@ -15,6 +15,7 @@ services:
       MESSENGER_PLAYBACK_EVENTS_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/playback_events
       MESSENGER_AGENT_COMMANDS_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/agent_commands
       MESSENGER_AGENT_EVENTS_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/agent_events
+      MESSENGER_SCHEDULER_TRANSPORT_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/playback_scheduler
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -25,12 +26,14 @@ services:
 
   # Consumes RequestAnnouncementPlayback and creates PlaybackJob rows; publishes
   # queued/started/completed integration events back to core (playback_events).
+  # `scheduler` delivers the delayed self-wake of repeatable jobs (task 020) — it
+  # must be consumed here too, or a repeating job would go Scheduled and never wake.
   aeroflow_playback_worker:
     build:
       context: .
       dockerfile: _docker/Dockerfile
     container_name: aeroflow_playback_worker
-    command: php bin/console messenger:consume async agent_events -vv
+    command: php bin/console messenger:consume async agent_events scheduler -vv
     restart: unless-stopped
     volumes:
       - .:/var/www
@@ -41,6 +44,7 @@ services:
       MESSENGER_PLAYBACK_EVENTS_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/playback_events
       MESSENGER_AGENT_COMMANDS_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/agent_commands
       MESSENGER_AGENT_EVENTS_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/agent_events
+      MESSENGER_SCHEDULER_TRANSPORT_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/playback_scheduler
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
