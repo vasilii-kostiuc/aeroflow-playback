@@ -7,6 +7,7 @@ namespace App\Playback\Infrastructure\Messaging;
 use App\Playback\Application\CancelAnnouncementPlayback;
 use App\Playback\Application\RequestAnnouncementPlayback;
 use App\Playback\Application\StopAnnouncementPlayback;
+use App\Playback\Application\StopAnnouncementRepeat;
 use JsonException;
 use LogicException;
 use Symfony\Component\Messenger\Envelope;
@@ -31,6 +32,7 @@ final class AnnouncementPlaybackSerializer implements SerializerInterface
     private const string COMMAND_REQUEST = 'announcement_playback.request';
     private const string COMMAND_CANCEL = 'announcement_playback.cancel';
     private const string COMMAND_STOP = 'announcement_playback.stop';
+    private const string COMMAND_STOP_REPEAT = 'announcement_playback.stop_repeat';
 
     private const array REQUEST_REQUIRED_KEYS = [
         'messageId',
@@ -67,6 +69,7 @@ final class AnnouncementPlaybackSerializer implements SerializerInterface
             self::COMMAND_REQUEST => $this->decodeRequest($data),
             self::COMMAND_CANCEL => $this->decodeCancel($data),
             self::COMMAND_STOP => $this->decodeStop($data),
+            self::COMMAND_STOP_REPEAT => $this->decodeStopRepeat($data),
             default => throw new MessageDecodingFailedException(sprintf(
                 'Unknown playback command "%s".',
                 is_string($command) ? $command : get_debug_type($command),
@@ -109,6 +112,14 @@ final class AnnouncementPlaybackSerializer implements SerializerInterface
             ],
             $message instanceof StopAnnouncementPlayback => [
                 'command' => self::COMMAND_STOP,
+                'messageId' => $message->messageId,
+                'correlationId' => $message->correlationId,
+                'announcementId' => $message->announcementId,
+                'occurredAt' => $message->occurredAt,
+                'schemaVersion' => $message->schemaVersion,
+            ],
+            $message instanceof StopAnnouncementRepeat => [
+                'command' => self::COMMAND_STOP_REPEAT,
                 'messageId' => $message->messageId,
                 'correlationId' => $message->correlationId,
                 'announcementId' => $message->announcementId,
@@ -176,6 +187,20 @@ final class AnnouncementPlaybackSerializer implements SerializerInterface
         $this->assertKeys($data, self::CANCEL_REQUIRED_KEYS);
 
         return new Envelope(new StopAnnouncementPlayback(
+            messageId: (string) $data['messageId'],
+            correlationId: (string) $data['correlationId'],
+            announcementId: (string) $data['announcementId'],
+            occurredAt: (string) ($data['occurredAt'] ?? ''),
+            schemaVersion: (int) ($data['schemaVersion'] ?? 1),
+        ));
+    }
+
+    /** @param array<string,mixed> $data */
+    private function decodeStopRepeat(array $data): Envelope
+    {
+        $this->assertKeys($data, self::CANCEL_REQUIRED_KEYS);
+
+        return new Envelope(new StopAnnouncementRepeat(
             messageId: (string) $data['messageId'],
             correlationId: (string) $data['correlationId'],
             announcementId: (string) $data['announcementId'],

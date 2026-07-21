@@ -7,6 +7,7 @@ namespace App\Tests\Unit\Playback\Infrastructure\Messaging;
 use App\Playback\Application\CancelAnnouncementPlayback;
 use App\Playback\Application\RequestAnnouncementPlayback;
 use App\Playback\Application\StopAnnouncementPlayback;
+use App\Playback\Application\StopAnnouncementRepeat;
 use App\Playback\Infrastructure\Messaging\AnnouncementPlaybackSerializer;
 use LogicException;
 use PHPUnit\Framework\TestCase;
@@ -127,6 +128,45 @@ final class AnnouncementPlaybackSerializerTest extends TestCase
                 'messageId' => Uuid::v7()->toRfc4122(),
             ], JSON_THROW_ON_ERROR),
         ]);
+    }
+
+    public function testDecodesStopRepeatBodyDiscriminatedByCommand(): void
+    {
+        $messageId = Uuid::v7()->toRfc4122();
+        $announcementId = Uuid::v7()->toRfc4122();
+        $body = json_encode([
+            'command' => 'announcement_playback.stop_repeat',
+            'messageId' => $messageId,
+            'correlationId' => $announcementId,
+            'announcementId' => $announcementId,
+            'occurredAt' => '2026-07-20T10:00:00+00:00',
+            'schemaVersion' => 1,
+        ], JSON_THROW_ON_ERROR);
+
+        $message = (new AnnouncementPlaybackSerializer())->decode(['body' => $body])->getMessage();
+
+        self::assertInstanceOf(StopAnnouncementRepeat::class, $message);
+        self::assertSame($messageId, $message->messageId);
+        self::assertSame($announcementId, $message->announcementId);
+    }
+
+    public function testEncodesStopRepeatCommandBody(): void
+    {
+        $announcementId = Uuid::v7()->toRfc4122();
+        $stopRepeat = new StopAnnouncementRepeat(
+            messageId: Uuid::v7()->toRfc4122(),
+            correlationId: $announcementId,
+            announcementId: $announcementId,
+            occurredAt: '2026-07-20T10:00:00+00:00',
+            schemaVersion: 1,
+        );
+
+        $encoded = (new AnnouncementPlaybackSerializer())->encode(new Envelope($stopRepeat));
+
+        $body = json_decode($encoded['body'], true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame('announcement_playback.stop_repeat', $body['command']);
+        self::assertSame($announcementId, $body['announcementId']);
+        self::assertSame('announcement_playback.stop_repeat', $encoded['headers']['type']);
     }
 
     public function testEncodeDecodeRoundTripsForRetryRedelivery(): void

@@ -11,6 +11,7 @@ use App\Playback\Domain\Enum\PlaybackJobStatus;
 use App\Tests\Application\Playback\Support\InMemoryPlaybackJobRepository;
 use App\Tests\Application\Playback\Support\RecordingAgentCommandPublisher;
 use App\Tests\Application\Playback\Support\RecordingPlaybackEventPublisher;
+use App\Tests\Application\Playback\Support\RecordingScheduledWakePlanner;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Uid\Uuid;
 
@@ -19,6 +20,7 @@ final class HandleAnnouncementPlaybackRequestTest extends TestCase
     private InMemoryPlaybackJobRepository $jobs;
     private RecordingPlaybackEventPublisher $events;
     private RecordingAgentCommandPublisher $agentCommands;
+    private RecordingScheduledWakePlanner $wakePlanner;
     private HandleAnnouncementPlaybackRequest $handler;
 
     protected function setUp(): void
@@ -26,8 +28,9 @@ final class HandleAnnouncementPlaybackRequestTest extends TestCase
         $this->jobs = new InMemoryPlaybackJobRepository();
         $this->events = new RecordingPlaybackEventPublisher();
         $this->agentCommands = new RecordingAgentCommandPublisher();
+        $this->wakePlanner = new RecordingScheduledWakePlanner();
         $dispatcher = new PlaybackQueueDispatcher($this->jobs, $this->events, $this->agentCommands);
-        $this->handler = new HandleAnnouncementPlaybackRequest($this->jobs, $this->events, $dispatcher);
+        $this->handler = new HandleAnnouncementPlaybackRequest($this->jobs, $this->events, $dispatcher, $this->wakePlanner);
     }
 
     public function testCreatesJobPublishesQueuedAndStartsItOnIdleQueue(): void

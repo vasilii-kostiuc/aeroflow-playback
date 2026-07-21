@@ -39,12 +39,22 @@ framework:
                 retry_strategy:
                     max_retries: 3
                     delay: 1000
+            # Internal delayed self-wake for repeatable jobs (task 020). Native PHP
+            # serializer — producer and consumer are this service. DelayStamp drives
+            # the per-tick interval; no cron. The AMQP transport realises the delay
+            # via its own delay exchange.
+            scheduler:
+                dsn: '%env(MESSENGER_SCHEDULER_TRANSPORT_DSN)%'
+                retry_strategy:
+                    max_retries: 3
+                    delay: 1000
 
         routing:
             # Every outbound integration event travels to core; commands stay local.
             App\Playback\Application\IntegrationEvent\AnnouncementPlaybackEvent: playback_events
             App\Playback\Application\Agent\PlayAudioSequence: agent_commands
             App\Playback\Application\Agent\StopAudioPlayback: agent_commands
+            App\Playback\Application\WakeScheduledPlaybackJob: scheduler
 
 when@test:
     framework:
@@ -56,3 +66,6 @@ when@test:
                 playback_events: 'in-memory://'
                 agent_commands: 'in-memory://'
                 agent_events: 'in-memory://'
+                # In-memory ignores the delay but still queues the wake, so its
+                # planning can be asserted without a broker.
+                scheduler: 'in-memory://'

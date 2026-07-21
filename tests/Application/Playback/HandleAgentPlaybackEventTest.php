@@ -15,6 +15,7 @@ use App\Playback\Domain\Enum\PlaybackJobStatus;
 use App\Tests\Application\Playback\Support\InMemoryPlaybackJobRepository;
 use App\Tests\Application\Playback\Support\RecordingAgentCommandPublisher;
 use App\Tests\Application\Playback\Support\RecordingPlaybackEventPublisher;
+use App\Tests\Application\Playback\Support\RecordingScheduledWakePlanner;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 use Symfony\Component\Uid\Uuid;
@@ -33,7 +34,7 @@ final class HandleAgentPlaybackEventTest extends TestCase
         $this->agentCommands = new RecordingAgentCommandPublisher();
         $dispatcher = new PlaybackQueueDispatcher($this->jobs, $this->events, $this->agentCommands);
         $this->handler = new HandleAgentPlaybackEvent(
-            new HandleCompletePlaybackJob($this->jobs, $this->events, $dispatcher),
+            new HandleCompletePlaybackJob($this->jobs, $this->events, $dispatcher, new RecordingScheduledWakePlanner()),
             new HandleFailPlaybackJob($this->jobs, $this->events, $dispatcher),
             new HandleInterruptPlaybackJob($this->jobs, $this->events, $dispatcher),
             new NullLogger(),

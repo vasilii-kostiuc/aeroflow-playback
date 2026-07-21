@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace App\Tests\Unit\Playback\Domain\Entity;
 
 use App\Playback\Domain\Entity\PlaybackJob;
+use App\Playback\Domain\Enum\PlaybackCompletionResult;
 use App\Playback\Domain\Enum\PlaybackJobStatus;
 use App\Playback\Domain\Exception\InvalidPlaybackJobTransition;
+use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Uid\Uuid;
 
@@ -58,7 +60,7 @@ final class PlaybackJobTest extends TestCase
         $job = $this->pendingJob();
         $job->start();
 
-        self::assertTrue($job->complete());
+        self::assertSame(PlaybackCompletionResult::Completed, $job->complete());
         self::assertSame(PlaybackJobStatus::Completed, $job->getStatus());
     }
 
@@ -68,7 +70,7 @@ final class PlaybackJobTest extends TestCase
         $job->start();
         $job->complete();
 
-        self::assertFalse($job->complete());
+        self::assertSame(PlaybackCompletionResult::NoOp, $job->complete());
         self::assertSame(PlaybackJobStatus::Completed, $job->getStatus());
     }
 
@@ -173,6 +175,91 @@ final class PlaybackJobTest extends TestCase
         $job->start();
     }
 
+    public function testRepeatableJobIsBornScheduledOneIntervalAhead(): void
+    {
+        $job = $this->repeatableJob(5);
+
+        self::assertSame(PlaybackJobStatus::Scheduled, $job->getStatus());
+        self::assertTrue($job->isRepeatable());
+        self::assertSame(5, $job->repeatEveryMinutes());
+        self::assertNotNull($job->getScheduledAt());
+        self::assertGreaterThan(new DateTimeImmutable('+4 minutes'), $job->getScheduledAt());
+    }
+
+    public function testWakeMovesScheduledJobToPending(): void
+    {
+        $job = $this->repeatableJob(5);
+
+        self::assertTrue($job->wake());
+        self::assertSame(PlaybackJobStatus::Pending, $job->getStatus());
+    }
+
+    public function testWakeIsNoOpWhenNotScheduled(): void
+    {
+        $job = $this->repeatableJob(5);
+        $job->wake();
+        $job->start();
+
+        self::assertFalse($job->wake());
+        self::assertSame(PlaybackJobStatus::Playing, $job->getStatus());
+    }
+
+    public function testRepeatableJobRearmsOnCompletionInsteadOfCompleting(): void
+    {
+        $job = $this->repeatableJob(5);
+        $job->wake();
+        $job->start();
+
+        self::assertSame(PlaybackCompletionResult::Rearmed, $job->complete());
+        self::assertSame(PlaybackJobStatus::Scheduled, $job->getStatus());
+        self::assertGreaterThan(new DateTimeImmutable('+4 minutes'), $job->getScheduledAt());
+    }
+
+    public function testCompletionOfRepeatableJobBetweenTicksIsIdempotentNoOp(): void
+    {
+        $job = $this->repeatableJob(5);
+        $job->wake();
+        $job->start();
+        $job->complete(); // re-armed, now Scheduled
+
+        // A redelivery of the tick completion arrives while the job rests: no-op.
+        self::assertSame(PlaybackCompletionResult::NoOp, $job->complete());
+        self::assertSame(PlaybackJobStatus::Scheduled, $job->getStatus());
+    }
+
+    public function testCancelRepeatWhilePlayingLetsCurrentTickFinishThenTerminates(): void
+    {
+        $job = $this->repeatableJob(5);
+        $job->wake();
+        $job->start();
+
+        self::assertTrue($job->cancelRepeat());
+        self::assertTrue($job->isRepeatCancelled());
+        // The current tick keeps sounding until it completes.
+        self::assertSame(PlaybackJobStatus::Playing, $job->getStatus());
+
+        self::assertSame(PlaybackCompletionResult::Completed, $job->complete());
+        self::assertSame(PlaybackJobStatus::Completed, $job->getStatus());
+    }
+
+    public function testCancelRepeatBetweenTicksTerminatesImmediately(): void
+    {
+        $job = $this->repeatableJob(5); // Scheduled
+
+        self::assertTrue($job->cancelRepeat());
+        self::assertSame(PlaybackJobStatus::Completed, $job->getStatus());
+    }
+
+    public function testCancelRepeatIsIdempotentAndNoOpOnOneShotJob(): void
+    {
+        $oneShot = $this->pendingJob();
+        self::assertFalse($oneShot->cancelRepeat());
+
+        $job = $this->repeatableJob(5);
+        self::assertTrue($job->cancelRepeat());
+        self::assertFalse($job->cancelRepeat());
+    }
+
     private function pendingJob(int $priority = 100): PlaybackJob
     {
         return PlaybackJob::queue(
@@ -185,6 +272,22 @@ final class PlaybackJobTest extends TestCase
                 'sortOrder' => 0,
                 'items' => [['type' => 'audio_asset', 'audioAssetId' => Uuid::v7()->toRfc4122()]],
             ]],
+        );
+    }
+
+    private function repeatableJob(int $everyMinutes): PlaybackJob
+    {
+        return PlaybackJob::queue(
+            Uuid::v7()->toRfc4122(),
+            Uuid::v7()->toRfc4122(),
+            'check_in_continuation',
+            100,
+            [[
+                'languageCode' => 'ro-MD',
+                'sortOrder' => 0,
+                'items' => [['type' => 'audio_asset', 'audioAssetId' => Uuid::v7()->toRfc4122()]],
+            ]],
+            ['everyMinutes' => $everyMinutes],
         );
     }
 }

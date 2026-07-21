@@ -25,6 +25,7 @@ final readonly class HandleAnnouncementPlaybackRequest
         private PlaybackJobRepositoryInterface $jobs,
         private PlaybackEventPublisherInterface $events,
         private PlaybackQueueDispatcher $dispatcher,
+        private ScheduledWakePlannerInterface $wakePlanner,
     ) {
     }
 
@@ -44,6 +45,11 @@ final readonly class HandleAnnouncementPlaybackRequest
         );
         $this->jobs->save($job);
         $this->events->publish(AnnouncementPlaybackQueued::for($job));
+
+        // A repeatable job is born Scheduled: plan its first tick one interval out.
+        if ($job->isRepeatable()) {
+            $this->wakePlanner->planWake($job->getId()->toRfc4122(), (int) $job->repeatEveryMinutes());
+        }
 
         // The queue may be idle; try to start the head (possibly this very job).
         $this->dispatcher->dispatchNext();

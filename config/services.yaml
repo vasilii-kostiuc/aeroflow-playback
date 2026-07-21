@@ -32,3 +32,6 @@ services:
 
     App\Playback\Application\Agent\AgentCommandPublisherInterface:
         alias: App\Playback\Infrastructure\Event\DeferredAgentCommandPublisher
+
+    App\Playback\Application\ScheduledWakePlannerInterface:
+        alias: App\Playback\Infrastructure\Messaging\MessengerScheduledWakePlanner

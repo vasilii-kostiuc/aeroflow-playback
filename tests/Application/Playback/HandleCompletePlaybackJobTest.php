@@ -14,6 +14,7 @@ use App\Playback\Domain\Enum\PlaybackJobStatus;
 use App\Tests\Application\Playback\Support\InMemoryPlaybackJobRepository;
 use App\Tests\Application\Playback\Support\RecordingAgentCommandPublisher;
 use App\Tests\Application\Playback\Support\RecordingPlaybackEventPublisher;
+use App\Tests\Application\Playback\Support\RecordingScheduledWakePlanner;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Uid\Uuid;
 
@@ -22,6 +23,7 @@ final class HandleCompletePlaybackJobTest extends TestCase
     private InMemoryPlaybackJobRepository $jobs;
     private RecordingPlaybackEventPublisher $events;
     private RecordingAgentCommandPublisher $agentCommands;
+    private RecordingScheduledWakePlanner $wakePlanner;
     private HandleCompletePlaybackJob $handler;
 
     protected function setUp(): void
@@ -29,8 +31,9 @@ final class HandleCompletePlaybackJobTest extends TestCase
         $this->jobs = new InMemoryPlaybackJobRepository();
         $this->events = new RecordingPlaybackEventPublisher();
         $this->agentCommands = new RecordingAgentCommandPublisher();
+        $this->wakePlanner = new RecordingScheduledWakePlanner();
         $dispatcher = new PlaybackQueueDispatcher($this->jobs, $this->events, $this->agentCommands);
-        $this->handler = new HandleCompletePlaybackJob($this->jobs, $this->events, $dispatcher);
+        $this->handler = new HandleCompletePlaybackJob($this->jobs, $this->events, $dispatcher, $this->wakePlanner);
     }
 
     public function testCompletesJobPublishesEventAndStartsNext(): void
@@ -104,6 +107,35 @@ final class HandleCompletePlaybackJobTest extends TestCase
         // A redelivered failure publishes nothing twice.
         $failHandler(new FailPlaybackJob($active->getId()->toRfc4122(), 'player exited 1'));
         self::assertSame(1, count(array_keys($this->events->eventNames(), 'announcement_playback.failed', true)));
+    }
+
+    public function testRepeatableJobRearmsAndPlansWakeInsteadOfCompleting(): void
+    {
+        $job = PlaybackJob::queue(
+            Uuid::v7()->toRfc4122(),
+            Uuid::v7()->toRfc4122(),
+            'check_in_continuation',
+            100,
+            [[
+                'languageCode' => 'ro-MD',
+                'sortOrder' => 0,
+                'items' => [['type' => 'audio_asset', 'audioAssetId' => Uuid::v7()->toRfc4122()]],
+            ]],
+            ['everyMinutes' => 5],
+        );
+        $job->wake();
+        $job->start();
+        $this->jobs->save($job);
+
+        ($this->handler)(new CompletePlaybackJob($job->getId()->toRfc4122()));
+
+        self::assertSame(PlaybackJobStatus::Scheduled, $job->getStatus());
+        // No completion event — the series continues; the next tick is planned.
+        self::assertSame([], $this->events->eventNames());
+        self::assertSame(
+            [['jobId' => $job->getId()->toRfc4122(), 'delayMinutes' => 5]],
+            $this->wakePlanner->planned,
+        );
     }
 
     private function queueJob(int $priority): PlaybackJob

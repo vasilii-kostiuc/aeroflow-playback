@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Playback\Domain\Entity;
 
+use App\Playback\Domain\Enum\PlaybackCompletionResult;
 use App\Playback\Domain\Enum\PlaybackJobStatus;
 use App\Playback\Domain\Exception\InvalidPlaybackJobTransition;
 use DateTimeImmutable;
@@ -21,7 +22,14 @@ use Symfony\Component\Uid\Uuid;
  * operator's stop of the currently sounding job (task 019): the agent confirms the
  * physical stop and only then the aggregate leaves Playing. The queue is strictly
  * sequential — an active job is never interrupted by an ordinary one; only the
- * future emergency mode may preempt. Scheduled belongs to a later slice.
+ * future emergency mode may preempt.
+ *
+ * A repeatable job (task 020 — "продолжение регистрации") carries a repeatRule with
+ * everyMinutes. It is born Scheduled (first tick one interval later) and, instead of
+ * ending, re-arms on each completion: Playing -> Scheduled (scheduledAt += interval)
+ * -> [delayed wake] Pending -> Playing -> ... The series runs until Core stops it via
+ * cancelRepeat(): the current tick finishes, then the job terminates in Completed.
+ * Playback never learns why — it only cycles the job until told to stop.
  */
 #[ORM\Entity]
 #[ORM\Table(name: 'playback_job')]
@@ -68,6 +76,13 @@ class PlaybackJob
     #[ORM\Column(options: ['default' => false])]
     private bool $stopRequested = false;
 
+    /**
+     * Set when Core ends the repeat series (task 020). The current tick still plays
+     * to the end; the next completion terminates the job instead of re-arming.
+     */
+    #[ORM\Column(options: ['default' => false])]
+    private bool $repeatCancelled = false;
+
     private function __construct()
     {
     }
@@ -91,11 +106,21 @@ class PlaybackJob
         $job->announcementId = Uuid::fromString($announcementId);
         $job->type = $type;
         $job->priority = $priority;
-        $job->status = PlaybackJobStatus::Pending;
         $job->audioSequence = $audioSequence;
         $job->repeatRule = $repeatRule;
-        $job->scheduledAt = $scheduledAt;
         $job->createdAt = new DateTimeImmutable();
+
+        // A repeatable job starts asleep: its first tick sounds one interval after
+        // opening, not together with the one-shot opening announcement. A one-shot
+        // job is Pending immediately (scheduledAt stays whatever was requested).
+        $everyMinutes = $job->repeatEveryMinutes();
+        if ($everyMinutes !== null) {
+            $job->status = PlaybackJobStatus::Scheduled;
+            $job->scheduledAt = $job->createdAt->modify(sprintf('+%d minutes', $everyMinutes));
+        } else {
+            $job->status = PlaybackJobStatus::Pending;
+            $job->scheduledAt = $scheduledAt;
+        }
 
         return $job;
     }
@@ -114,21 +139,84 @@ class PlaybackJob
     }
 
     /**
-     * Mark the job as played to the end. Idempotent: completing an already
-     * Completed job is a no-op and reports false so the caller does not publish
-     * the completion event twice.
+     * Wake a Scheduled job for its next tick (task 020): Scheduled -> Pending. The
+     * delayed queue re-evaluation calls this. Idempotent — a job that is not
+     * Scheduled (already Pending, Playing or terminal) is a no-op reporting false.
      */
-    public function complete(): bool
+    public function wake(): bool
+    {
+        if ($this->status !== PlaybackJobStatus::Scheduled) {
+            return false;
+        }
+
+        $this->status = PlaybackJobStatus::Pending;
+
+        return true;
+    }
+
+    /**
+     * Report the active run played to the end.
+     *
+     * A one-shot job terminates in Completed. A repeatable job re-arms for its next
+     * tick (Playing -> Scheduled, scheduledAt += interval) unless its series was
+     * stopped, in which case it terminates in Completed like a one-shot.
+     *
+     * Idempotent: re-completing an already Completed job is a NoOp. A repeatable job
+     * found between ticks (Scheduled/Pending) is a redelivery of the previous tick's
+     * completion — also a NoOp — because a genuine new completion only arrives while
+     * the job is Playing.
+     */
+    public function complete(): PlaybackCompletionResult
     {
         if ($this->status === PlaybackJobStatus::Completed) {
-            return false;
+            return PlaybackCompletionResult::NoOp;
+        }
+
+        if ($this->isRepeatable()
+            && ($this->status === PlaybackJobStatus::Scheduled || $this->status === PlaybackJobStatus::Pending)) {
+            return PlaybackCompletionResult::NoOp;
         }
 
         if ($this->status !== PlaybackJobStatus::Playing) {
             throw InvalidPlaybackJobTransition::forJob($this->id, $this->status, 'complete');
         }
 
+        $everyMinutes = $this->repeatEveryMinutes();
+        if ($everyMinutes !== null && !$this->repeatCancelled) {
+            $this->scheduledAt = (new DateTimeImmutable())->modify(sprintf('+%d minutes', $everyMinutes));
+            $this->status = PlaybackJobStatus::Scheduled;
+
+            return PlaybackCompletionResult::Rearmed;
+        }
+
         $this->status = PlaybackJobStatus::Completed;
+
+        return PlaybackCompletionResult::Completed;
+    }
+
+    /**
+     * Core ends the repeat series (task 020). Neutral, not a physical stop: a Playing
+     * tick keeps sounding and terminates on its next completion; a job resting between
+     * ticks (Scheduled/Pending) terminates now. Idempotent and only meaningful for a
+     * repeatable job — a one-shot or an already-stopped/terminal job reports false.
+     */
+    public function cancelRepeat(): bool
+    {
+        if (!$this->isRepeatable() || $this->repeatCancelled) {
+            return false;
+        }
+
+        if ($this->status !== PlaybackJobStatus::Playing
+            && $this->status !== PlaybackJobStatus::Scheduled
+            && $this->status !== PlaybackJobStatus::Pending) {
+            return false;
+        }
+
+        $this->repeatCancelled = true;
+
+        if ($this->status !== PlaybackJobStatus::Playing) {
+            $this->status = PlaybackJobStatus::Completed;
+        }
 
         return true;
     }
@@ -245,6 +333,24 @@ class PlaybackJob
     public function getRepeatRule(): ?array
     {
         return $this->repeatRule;
+    }
+
+    /** The repeat interval in minutes, or null when the job is one-shot. */
+    public function repeatEveryMinutes(): ?int
+    {
+        $everyMinutes = $this->repeatRule['everyMinutes'] ?? null;
+
+        return is_int($everyMinutes) && $everyMinutes > 0 ? $everyMinutes : null;
+    }
+
+    public function isRepeatable(): bool
+    {
+        return $this->repeatEveryMinutes() !== null;
+    }
+
+    public function isRepeatCancelled(): bool
+    {
+        return $this->repeatCancelled;
     }
 
     public function getCreatedAt(): DateTimeImmutable
