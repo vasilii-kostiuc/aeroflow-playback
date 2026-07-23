@@ -15,6 +15,7 @@ use App\Tests\Application\Playback\Support\InMemoryPlaybackJobRepository;
 use App\Tests\Application\Playback\Support\RecordingAgentCommandPublisher;
 use App\Tests\Application\Playback\Support\RecordingPlaybackEventPublisher;
 use App\Tests\Application\Playback\Support\RecordingScheduledWakePlanner;
+use DateTimeInterface;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Uid\Uuid;
 
@@ -130,12 +131,37 @@ final class HandleCompletePlaybackJobTest extends TestCase
         ($this->handler)(new CompletePlaybackJob($job->getId()->toRfc4122()));
 
         self::assertSame(PlaybackJobStatus::Scheduled, $job->getStatus());
-        // No completion event — the series continues; the next tick is planned.
-        self::assertSame([], $this->events->eventNames());
+        // Not completed — the series continues; the next tick is planned and core is
+        // told the row rests until then, so it stops showing it as sounding.
+        self::assertSame(['announcement_playback.rescheduled'], $this->events->eventNames());
+        self::assertSame(
+            $job->getScheduledAt()?->format(DateTimeInterface::ATOM),
+            $this->events->published[0]->nextAt,
+        );
         self::assertSame(
             [['jobId' => $job->getId()->toRfc4122(), 'delayMinutes' => 5]],
             $this->wakePlanner->planned,
         );
+
+        // A redelivered completion between ticks is a no-op: no second rescheduled,
+        // no second wake, and the tick already planned is not pushed further out.
+        ($this->handler)(new CompletePlaybackJob($job->getId()->toRfc4122()));
+
+        self::assertSame(['announcement_playback.rescheduled'], $this->events->eventNames());
+        self::assertCount(1, $this->wakePlanner->planned);
+    }
+
+    public function testOneShotJobPublishesCompletionAndNeverReschedules(): void
+    {
+        $job = $this->queueJob(100);
+        $job->start();
+        $this->jobs->save($job);
+
+        ($this->handler)(new CompletePlaybackJob($job->getId()->toRfc4122()));
+
+        self::assertSame(['announcement_playback.completed'], $this->events->eventNames());
+        self::assertNull($this->events->published[0]->nextAt);
+        self::assertSame([], $this->wakePlanner->planned);
     }
 
     private function queueJob(int $priority): PlaybackJob
