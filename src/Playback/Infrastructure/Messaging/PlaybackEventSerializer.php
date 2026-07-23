@@ -41,6 +41,9 @@ final class PlaybackEventSerializer implements SerializerInterface
         if ($message->reason !== null) {
             $body['reason'] = $message->reason;
         }
+        if ($message->nextAt !== null) {
+            $body['nextAt'] = $message->nextAt;
+        }
 
         return [
             'body' => json_encode($body, JSON_THROW_ON_ERROR),

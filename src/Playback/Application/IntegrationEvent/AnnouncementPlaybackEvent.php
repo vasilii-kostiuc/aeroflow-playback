@@ -17,6 +17,11 @@ use Symfony\Component\Uid\Uuid;
  * inside the JSON body so the consumer discriminates by contract, not by PHP class
  * name. correlationId equals announcementId (same correlation the inbound
  * RequestAnnouncementPlayback started).
+ *
+ * `reason` and `nextAt` are optional per-fact payload: only failed carries a reason,
+ * only rescheduled (task 023) carries the moment of the next repeat tick. Adding
+ * nextAt kept schemaVersion at 1 — an optional field is backward compatible and a
+ * consumer of the previous contract simply ignores it.
  */
 abstract readonly class AnnouncementPlaybackEvent
 {
@@ -31,6 +36,7 @@ abstract readonly class AnnouncementPlaybackEvent
         public string $event,
         PlaybackJob $job,
         public ?string $reason = null,
+        public ?string $nextAt = null,
     ) {
         $this->messageId = Uuid::v7()->toRfc4122();
         $this->correlationId = $job->getAnnouncementId()->toRfc4122();
