@@ -101,6 +101,44 @@ final class HandleAgentPlaybackEventTest extends TestCase
         );
     }
 
+    public function testInterruptedEventOnAPreemptRequestedJobRequeuesItInsteadOfInterrupting(): void
+    {
+        $active = $this->playingJob(priority: 100);
+        $active->requestPreempt();
+        $emergency = $this->pendingJob(priority: PlaybackJob::PREEMPTIVE_PRIORITY);
+
+        ($this->handler)($this->event(AgentPlaybackEvent::INTERRUPTED, $active->getId()->toRfc4122()));
+
+        // Preempted -> Pending, not the operator's terminal Interrupted; the job is
+        // eligible to play again, not gone.
+        self::assertSame(PlaybackJobStatus::Pending, $active->getStatus());
+        self::assertFalse($active->isPreemptRequested());
+        self::assertSame(PlaybackJobStatus::Playing, $emergency->getStatus());
+        self::assertSame(
+            ['announcement_playback.preempted', 'announcement_playback.started'],
+            $this->events->eventNames(),
+        );
+    }
+
+    public function testRedeliveredInterruptedEventAfterRequeueDoesNotPreemptAgain(): void
+    {
+        $active = $this->playingJob(priority: 100);
+        $active->requestPreempt();
+        $this->pendingJob(priority: PlaybackJob::PREEMPTIVE_PRIORITY);
+        $event = $this->event(AgentPlaybackEvent::INTERRUPTED, $active->getId()->toRfc4122());
+
+        ($this->handler)($event);
+        // $active is now Pending (the emergency job outranks it and is Playing
+        // instead) — a stale redelivery for the same jobId finds it neither Playing
+        // nor Interrupted and is a no-op, guarded by the handler's status check.
+        ($this->handler)($event);
+
+        self::assertSame(
+            ['announcement_playback.preempted', 'announcement_playback.started'],
+            $this->events->eventNames(),
+        );
+    }
+
     public function testUnknownEventIsIgnored(): void
     {
         $active = $this->playingJob();
@@ -122,21 +160,21 @@ final class HandleAgentPlaybackEventTest extends TestCase
         );
     }
 
-    private function playingJob(): PlaybackJob
+    private function playingJob(int $priority = 100): PlaybackJob
     {
-        $job = $this->pendingJob();
+        $job = $this->pendingJob($priority);
         $job->start();
 
         return $job;
     }
 
-    private function pendingJob(): PlaybackJob
+    private function pendingJob(int $priority = 100): PlaybackJob
     {
         $job = PlaybackJob::queue(
             Uuid::v7()->toRfc4122(),
             Uuid::v7()->toRfc4122(),
             'check_in_opening',
-            100,
+            $priority,
             [[
                 'languageCode' => 'ro-MD',
                 'sortOrder' => 0,

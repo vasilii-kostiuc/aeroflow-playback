@@ -38,7 +38,8 @@ docker compose exec aeroflow_playback_app php bin/console doctrine:database:crea
 docker compose exec aeroflow_playback_app php bin/console doctrine:migrations:migrate --no-interaction
 ```
 
-Воркер `aeroflow_playback_worker` выполняет `messenger:consume async`.
+Воркер `aeroflow_playback_worker` выполняет
+`messenger:consume announcement_playback agent_events scheduler`.
 
 ## Тесты
 

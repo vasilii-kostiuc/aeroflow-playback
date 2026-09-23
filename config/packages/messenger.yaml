@@ -15,7 +15,7 @@ framework:
             # Inbound integration commands from aeroflow-core over RabbitMQ.
             # The custom serializer rebuilds the message from the JSON body, so this
             # service stays coupled to the contract, not to Core's PHP classes.
-            async:
+            announcement_playback:
                 dsn: '%env(MESSENGER_TRANSPORT_DSN)%'
                 serializer: App\Playback\Infrastructure\Messaging\AnnouncementPlaybackSerializer
                 retry_strategy:
@@ -60,7 +60,7 @@ when@test:
     framework:
         messenger:
             transports:
-                async: 'in-memory://'
+                announcement_playback: 'in-memory://'
                 # Keep the outbound transports in-memory in tests so publishing can
                 # be asserted without a running RabbitMQ.
                 playback_events: 'in-memory://'
