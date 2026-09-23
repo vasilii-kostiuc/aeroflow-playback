@@ -9,6 +9,7 @@ enum PlaybackJobStatus: string
     case Pending = 'pending';
     case Scheduled = 'scheduled';
     case Playing = 'playing';
+    case Preempted = 'preempted';
     case Completed = 'completed';
     case Interrupted = 'interrupted';
     case Cancelled = 'cancelled';

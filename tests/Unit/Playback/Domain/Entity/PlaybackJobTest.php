@@ -130,6 +130,82 @@ final class PlaybackJobTest extends TestCase
         self::assertFalse($job->requestStop());
     }
 
+    public function testPreemptRequestIsOnlyAcceptedOnceWhilePlaying(): void
+    {
+        $job = $this->pendingJob();
+        $job->start();
+
+        self::assertTrue($job->requestPreempt());
+        self::assertFalse($job->requestPreempt());
+    }
+
+    public function testStopAndPreemptRequestsAreMutuallyExclusive(): void
+    {
+        $stopFirst = $this->pendingJob();
+        $stopFirst->start();
+        self::assertTrue($stopFirst->requestStop());
+        self::assertFalse($stopFirst->requestPreempt());
+
+        $preemptFirst = $this->pendingJob();
+        $preemptFirst->start();
+        self::assertTrue($preemptFirst->requestPreempt());
+        self::assertFalse($preemptFirst->requestStop());
+    }
+
+    public function testPreemptMovesPlayingJobToPreempted(): void
+    {
+        $job = $this->pendingJob();
+        $job->start();
+        $job->requestPreempt();
+
+        self::assertTrue($job->preempt());
+        self::assertSame(PlaybackJobStatus::Preempted, $job->getStatus());
+        self::assertFalse($job->preempt());
+    }
+
+    public function testPreemptRejectsNonPlayingJob(): void
+    {
+        $job = $this->pendingJob();
+
+        $this->expectException(InvalidPlaybackJobTransition::class);
+        $job->preempt();
+    }
+
+    public function testRequeueReturnsPreemptedJobToPendingWithOriginalPriorityAndCreatedAt(): void
+    {
+        $job = $this->pendingJob(priority: 1000);
+        $createdAt = $job->getCreatedAt();
+        $job->start();
+        $job->requestPreempt();
+        $job->preempt();
+
+        self::assertTrue($job->requeue());
+        self::assertSame(PlaybackJobStatus::Pending, $job->getStatus());
+        self::assertSame(1000, $job->getPriority());
+        self::assertSame($createdAt, $job->getCreatedAt());
+        self::assertFalse($job->isPreemptRequested());
+    }
+
+    public function testRequeuedJobCanBePreemptedAgainOnceReplaying(): void
+    {
+        $job = $this->pendingJob();
+        $job->start();
+        $job->requestPreempt();
+        $job->preempt();
+        $job->requeue();
+        $job->start();
+
+        self::assertTrue($job->requestPreempt());
+    }
+
+    public function testRequeueIsNoOpUnlessJobIsPreempted(): void
+    {
+        $job = $this->pendingJob();
+
+        self::assertFalse($job->requeue());
+        self::assertSame(PlaybackJobStatus::Pending, $job->getStatus());
+    }
+
     public function testCancelMovesPendingJobToCancelled(): void
     {
         $job = $this->pendingJob();

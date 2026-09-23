@@ -30,12 +30,31 @@ use Symfony\Component\Uid\Uuid;
  * -> [delayed wake] Pending -> Playing -> ... The series runs until Core stops it via
  * cancelRepeat(): the current tick finishes, then the job terminates in Completed.
  * Playback never learns why — it only cycles the job until told to stop.
+ *
+ * Task 025 gives the queue dispatcher the ability to preempt an active job with a
+ * job at or above PREEMPTIVE_PRIORITY: Playing -> Preempted -> Pending. Preempted is
+ * transient, not terminal — the same application handler that marks a job Preempted
+ * immediately requeues it, so it is never observed as a persisted row state; the
+ * physical stop reuses the exact audio.stop/audio.playback_interrupted contract task
+ * 019 already established, only the aggregate's own interpretation of the agent's
+ * confirmation differs (Preempted+requeue instead of the operator's terminal
+ * Interrupted). Priority and createdAt are untouched by requeue, so the job keeps its
+ * place in its tier's FIFO order instead of being penalised for being preempted.
  */
 #[ORM\Entity]
 #[ORM\Table(name: 'playback_job')]
 #[ORM\UniqueConstraint(name: 'UNIQ_PLAYBACK_JOB_SOURCE_MESSAGE', columns: ['source_message_id'])]
 class PlaybackJob
 {
+    /**
+     * Only a job at or above this priority may preempt an already-Playing job (see
+     * PlaybackQueueDispatcher). Ordinary priorities (100/100/50/0 — flight,
+     * continuation, supplementary, background music) never preempt each other or one
+     * another; the queue is strictly sequential for them. Playback does not need to
+     * know the word "emergency" — only this reserved threshold, defined by the
+     * priority table in README.md.
+     */
+    public const int PREEMPTIVE_PRIORITY = 1000;
     #[ORM\Id]
     #[ORM\Column(type: UuidType::NAME, unique: true)]
     private Uuid $id;
@@ -75,6 +94,15 @@ class PlaybackJob
 
     #[ORM\Column(options: ['default' => false])]
     private bool $stopRequested = false;
+
+    /**
+     * Set by the queue dispatcher when it decides to preempt this Playing job with a
+     * higher, at-or-above-PREEMPTIVE_PRIORITY one (task 025). Mutually exclusive with
+     * stopRequested — whichever request lands first on a job wins; the two never
+     * apply to the same physical stop.
+     */
+    #[ORM\Column(options: ['default' => false])]
+    private bool $preemptRequested = false;
 
     /**
      * Set when Core ends the repeat series (task 020). The current tick still plays
@@ -242,13 +270,35 @@ class PlaybackJob
     /** The operator requested a physical stop; the agent still confirms interruption. */
     public function requestStop(): bool
     {
-        if ($this->status !== PlaybackJobStatus::Playing || $this->stopRequested) {
+        if ($this->status !== PlaybackJobStatus::Playing || $this->stopRequested || $this->preemptRequested) {
             return false;
         }
 
         $this->stopRequested = true;
 
         return true;
+    }
+
+    /**
+     * The queue dispatcher requested a preemptive physical stop in favour of a
+     * higher-priority pending job (task 025); the agent still confirms interruption
+     * via the same audio.stop/audio.playback_interrupted contract as an operator
+     * stop. Mutually exclusive with an operator stop already in flight.
+     */
+    public function requestPreempt(): bool
+    {
+        if ($this->status !== PlaybackJobStatus::Playing || $this->stopRequested || $this->preemptRequested) {
+            return false;
+        }
+
+        $this->preemptRequested = true;
+
+        return true;
+    }
+
+    public function isPreemptRequested(): bool
+    {
+        return $this->preemptRequested;
     }
 
     /** Mark the job interrupted by the audio agent. */
@@ -263,6 +313,46 @@ class PlaybackJob
         }
 
         $this->status = PlaybackJobStatus::Interrupted;
+
+        return true;
+    }
+
+    /**
+     * Mark the job preempted by the audio agent's confirmation of the preemptive stop
+     * (task 025). Transient, not terminal: the caller is expected to requeue() it
+     * immediately afterwards, in the same handler — Preempted is never meant to
+     * outlive that one application-layer call.
+     */
+    public function preempt(): bool
+    {
+        if ($this->status === PlaybackJobStatus::Preempted) {
+            return false;
+        }
+
+        if ($this->status !== PlaybackJobStatus::Playing) {
+            throw InvalidPlaybackJobTransition::forJob($this->id, $this->status, 'preempt');
+        }
+
+        $this->status = PlaybackJobStatus::Preempted;
+
+        return true;
+    }
+
+    /**
+     * Return a preempted job to the back of the dispatcher's Pending selection —
+     * "back" only in the sense of leaving Preempted; priority and createdAt are
+     * untouched, so the job keeps its original place in its tier's FIFO order and is
+     * not penalised for having been preempted. Clears preemptRequested so the job can
+     * be preempted (or stopped) again next time it plays.
+     */
+    public function requeue(): bool
+    {
+        if ($this->status !== PlaybackJobStatus::Preempted) {
+            return false;
+        }
+
+        $this->status = PlaybackJobStatus::Pending;
+        $this->preemptRequested = false;
 
         return true;
     }

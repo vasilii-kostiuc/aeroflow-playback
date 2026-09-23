@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Application\Playback;
 
+use App\Playback\Application\Agent\StopAudioPlayback;
 use App\Playback\Application\PlaybackQueueDispatcher;
 use App\Playback\Domain\Entity\PlaybackJob;
 use App\Playback\Domain\Enum\PlaybackJobStatus;
@@ -64,6 +65,86 @@ final class PlaybackQueueDispatcherTest extends TestCase
         self::assertSame(PlaybackJobStatus::Playing, $active->getStatus());
         self::assertSame(PlaybackJobStatus::Pending, $waiting->getStatus());
         self::assertSame([], $events->published);
+        self::assertSame([], $agent->published);
+    }
+
+    public function testPreemptsActiveJobForAPendingJobAtOrAboveThePreemptiveThreshold(): void
+    {
+        $jobs = new InMemoryPlaybackJobRepository();
+        $events = new RecordingPlaybackEventPublisher();
+        $agent = new RecordingAgentCommandPublisher();
+        $active = $this->queueJob($jobs, priority: 100);
+        $active->start();
+        $emergency = $this->queueJob($jobs, priority: PlaybackJob::PREEMPTIVE_PRIORITY);
+
+        new PlaybackQueueDispatcher($jobs, $events, $agent)->dispatchNext();
+
+        // The active job is asked to stop — but not started/completed here: it only
+        // leaves Playing once the agent confirms the physical stop.
+        self::assertSame(PlaybackJobStatus::Playing, $active->getStatus());
+        self::assertTrue($active->isPreemptRequested());
+        self::assertSame(PlaybackJobStatus::Pending, $emergency->getStatus());
+        self::assertCount(1, $agent->published);
+        $command = $agent->published[0];
+        self::assertInstanceOf(StopAudioPlayback::class, $command);
+        self::assertSame($active->getId()->toRfc4122(), $command->jobId);
+        // No AnnouncementPlaybackStarted for the emergency job yet — that happens on
+        // the next dispatchNext(), after HandleInterruptPlaybackJob requeues the
+        // preempted job.
+        self::assertSame([], $events->published);
+    }
+
+    public function testDoesNotPreemptWhenPendingPriorityOnlyEqualsTheActiveOnesEvenAtTheThreshold(): void
+    {
+        $jobs = new InMemoryPlaybackJobRepository();
+        $events = new RecordingPlaybackEventPublisher();
+        $agent = new RecordingAgentCommandPublisher();
+        $active = $this->queueJob($jobs, priority: PlaybackJob::PREEMPTIVE_PRIORITY);
+        $active->start();
+        $secondEmergency = $this->queueJob($jobs, priority: PlaybackJob::PREEMPTIVE_PRIORITY);
+
+        new PlaybackQueueDispatcher($jobs, $events, $agent)->dispatchNext();
+
+        // Equal-priority emergencies queue up and play back to back; neither
+        // preempts the other.
+        self::assertSame(PlaybackJobStatus::Playing, $active->getStatus());
+        self::assertFalse($active->isPreemptRequested());
+        self::assertSame(PlaybackJobStatus::Pending, $secondEmergency->getStatus());
+        self::assertSame([], $agent->published);
+    }
+
+    public function testDoesNotPreemptForAHigherButBelowThresholdPriority(): void
+    {
+        $jobs = new InMemoryPlaybackJobRepository();
+        $events = new RecordingPlaybackEventPublisher();
+        $agent = new RecordingAgentCommandPublisher();
+        $active = $this->queueJob($jobs, priority: 50);
+        $active->start();
+        // Flight (100) is strictly higher than supplementary (50), but 100 is still
+        // an ordinary priority: it must queue, not preempt.
+        $flight = $this->queueJob($jobs, priority: 100);
+
+        new PlaybackQueueDispatcher($jobs, $events, $agent)->dispatchNext();
+
+        self::assertSame(PlaybackJobStatus::Playing, $active->getStatus());
+        self::assertFalse($active->isPreemptRequested());
+        self::assertSame(PlaybackJobStatus::Pending, $flight->getStatus());
+        self::assertSame([], $agent->published);
+    }
+
+    public function testDoesNothingWhileAJobIsPlayingAndNothingIsPending(): void
+    {
+        $jobs = new InMemoryPlaybackJobRepository();
+        $events = new RecordingPlaybackEventPublisher();
+        $agent = new RecordingAgentCommandPublisher();
+        $active = $this->queueJob($jobs, priority: PlaybackJob::PREEMPTIVE_PRIORITY);
+        $active->start();
+
+        new PlaybackQueueDispatcher($jobs, $events, $agent)->dispatchNext();
+
+        self::assertSame(PlaybackJobStatus::Playing, $active->getStatus());
+        self::assertFalse($active->isPreemptRequested());
+        self::assertSame([], $agent->published);
     }
 
     public function testDoesNothingOnEmptyQueue(): void
