@@ -21,6 +21,15 @@ framework:
                 retry_strategy:
                     max_retries: 3
                     delay: 1000
+            # Inbound emergency mode control commands from aeroflow-core (task 026).
+            # Its own queue on purpose (ADR 002, level 2): an emergency signal must
+            # never wait behind the bulk of ordinary announcement_playback traffic.
+            emergency_commands:
+                dsn: '%env(MESSENGER_EMERGENCY_COMMANDS_DSN)%'
+                serializer: App\Playback\Infrastructure\Messaging\EmergencyCommandSerializer
+                retry_strategy:
+                    max_retries: 3
+                    delay: 1000
             # Outbound integration events back to aeroflow-core over RabbitMQ.
             # Contract JSON; core discriminates by the `event` field in the body,
             # not by this service's PHP class names.
@@ -52,6 +61,7 @@ framework:
         routing:
             # Every outbound integration event travels to core; commands stay local.
             App\Playback\Application\IntegrationEvent\AnnouncementPlaybackEvent: playback_events
+            App\Playback\Application\IntegrationEvent\EmergencyModeEvent: playback_events
             App\Playback\Application\Agent\PlayAudioSequence: agent_commands
             App\Playback\Application\Agent\StopAudioPlayback: agent_commands
             App\Playback\Application\WakeScheduledPlaybackJob: scheduler
@@ -61,6 +71,7 @@ when@test:
         messenger:
             transports:
                 announcement_playback: 'in-memory://'
+                emergency_commands: 'in-memory://'
                 # Keep the outbound transports in-memory in tests so publishing can
                 # be asserted without a running RabbitMQ.
                 playback_events: 'in-memory://'

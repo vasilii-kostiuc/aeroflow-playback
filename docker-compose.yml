@@ -13,6 +13,7 @@ services:
       # Shares aeroflow-core's RabbitMQ over the host (core publishes port 5672).
       MESSENGER_TRANSPORT_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/announcement_playback
       MESSENGER_PLAYBACK_EVENTS_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/playback_events
+      MESSENGER_EMERGENCY_COMMANDS_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/emergency_commands
       MESSENGER_AGENT_COMMANDS_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/agent_commands
       MESSENGER_AGENT_EVENTS_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/agent_events
       MESSENGER_SCHEDULER_TRANSPORT_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/playback_scheduler
@@ -42,6 +43,37 @@ services:
       DATABASE_URL: postgresql://aeroflow:aeroflow@aeroflow_playback_postgres:5432/aeroflow_playback?serverVersion=16&charset=utf8
       MESSENGER_TRANSPORT_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/announcement_playback
       MESSENGER_PLAYBACK_EVENTS_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/playback_events
+      MESSENGER_EMERGENCY_COMMANDS_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/emergency_commands
+      MESSENGER_AGENT_COMMANDS_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/agent_commands
+      MESSENGER_AGENT_EVENTS_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/agent_events
+      MESSENGER_SCHEDULER_TRANSPORT_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/playback_scheduler
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      aeroflow_playback_postgres:
+        condition: service_healthy
+    networks:
+      - aeroflow_playback
+
+  # Emergency mode control commands (task 026) get their own worker, not just their
+  # own queue: the point of the separate transport (ADR 002, level 2) is that an
+  # emergency signal is handled at once instead of waiting behind whatever the
+  # ordinary worker is busy with.
+  aeroflow_playback_emergency_worker:
+    build:
+      context: .
+      dockerfile: _docker/Dockerfile
+    container_name: aeroflow_playback_emergency_worker
+    command: php bin/console messenger:consume emergency_commands -vv
+    restart: unless-stopped
+    volumes:
+      - .:/var/www
+    environment:
+      APP_ENV: dev
+      DATABASE_URL: postgresql://aeroflow:aeroflow@aeroflow_playback_postgres:5432/aeroflow_playback?serverVersion=16&charset=utf8
+      MESSENGER_TRANSPORT_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/announcement_playback
+      MESSENGER_PLAYBACK_EVENTS_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/playback_events
+      MESSENGER_EMERGENCY_COMMANDS_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/emergency_commands
       MESSENGER_AGENT_COMMANDS_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/agent_commands
       MESSENGER_AGENT_EVENTS_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/agent_events
       MESSENGER_SCHEDULER_TRANSPORT_DSN: amqp://guest:guest@host.docker.internal:5672/%2f/playback_scheduler

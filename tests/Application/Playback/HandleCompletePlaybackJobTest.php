@@ -11,6 +11,7 @@ use App\Playback\Application\HandleFailPlaybackJob;
 use App\Playback\Application\PlaybackQueueDispatcher;
 use App\Playback\Domain\Entity\PlaybackJob;
 use App\Playback\Domain\Enum\PlaybackJobStatus;
+use App\Tests\Application\Playback\Support\InMemoryEmergencyModeRepository;
 use App\Tests\Application\Playback\Support\InMemoryPlaybackJobRepository;
 use App\Tests\Application\Playback\Support\RecordingAgentCommandPublisher;
 use App\Tests\Application\Playback\Support\RecordingPlaybackEventPublisher;
@@ -33,7 +34,7 @@ final class HandleCompletePlaybackJobTest extends TestCase
         $this->events = new RecordingPlaybackEventPublisher();
         $this->agentCommands = new RecordingAgentCommandPublisher();
         $this->wakePlanner = new RecordingScheduledWakePlanner();
-        $dispatcher = new PlaybackQueueDispatcher($this->jobs, $this->events, $this->agentCommands);
+        $dispatcher = new PlaybackQueueDispatcher($this->jobs, $this->events, $this->agentCommands, new InMemoryEmergencyModeRepository());
         $this->handler = new HandleCompletePlaybackJob($this->jobs, $this->events, $dispatcher, $this->wakePlanner);
     }
 
@@ -93,7 +94,7 @@ final class HandleCompletePlaybackJobTest extends TestCase
         $failHandler = new HandleFailPlaybackJob(
             $this->jobs,
             $this->events,
-            new PlaybackQueueDispatcher($this->jobs, $this->events, $this->agentCommands),
+            new PlaybackQueueDispatcher($this->jobs, $this->events, $this->agentCommands, new InMemoryEmergencyModeRepository()),
         );
         $failHandler(new FailPlaybackJob($active->getId()->toRfc4122(), 'player exited 1'));
 

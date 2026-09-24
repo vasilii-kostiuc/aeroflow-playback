@@ -46,11 +46,12 @@ final class InMemoryPlaybackJobRepository implements PlaybackJobRepositoryInterf
         return null;
     }
 
-    public function findNextPendingForUpdate(): ?PlaybackJob
+    public function findNextPendingForUpdate(?int $minPriority = null): ?PlaybackJob
     {
         $pending = array_values(array_filter(
             $this->saved,
-            static fn (PlaybackJob $job): bool => $job->getStatus() === PlaybackJobStatus::Pending,
+            static fn (PlaybackJob $job): bool => $job->getStatus() === PlaybackJobStatus::Pending
+                && ($minPriority === null || $job->getPriority() >= $minPriority),
         ));
 
         // Same order as the Doctrine implementation: priority desc, createdAt asc,
