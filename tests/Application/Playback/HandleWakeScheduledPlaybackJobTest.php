@@ -9,6 +9,7 @@ use App\Playback\Application\PlaybackQueueDispatcher;
 use App\Playback\Application\WakeScheduledPlaybackJob;
 use App\Playback\Domain\Entity\PlaybackJob;
 use App\Playback\Domain\Enum\PlaybackJobStatus;
+use App\Tests\Application\Playback\Support\InMemoryEmergencyModeRepository;
 use App\Tests\Application\Playback\Support\InMemoryPlaybackJobRepository;
 use App\Tests\Application\Playback\Support\RecordingAgentCommandPublisher;
 use App\Tests\Application\Playback\Support\RecordingPlaybackEventPublisher;
@@ -25,7 +26,7 @@ final class HandleWakeScheduledPlaybackJobTest extends TestCase
     {
         $this->jobs = new InMemoryPlaybackJobRepository();
         $this->events = new RecordingPlaybackEventPublisher();
-        $dispatcher = new PlaybackQueueDispatcher($this->jobs, $this->events, new RecordingAgentCommandPublisher());
+        $dispatcher = new PlaybackQueueDispatcher($this->jobs, $this->events, new RecordingAgentCommandPublisher(), new InMemoryEmergencyModeRepository());
         $this->handler = new HandleWakeScheduledPlaybackJob($this->jobs, $dispatcher);
     }
 

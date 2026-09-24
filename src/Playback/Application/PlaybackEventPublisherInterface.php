@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Playback\Application;
 
-use App\Playback\Application\IntegrationEvent\AnnouncementPlaybackEvent;
+use App\Playback\Application\IntegrationEvent\PlaybackIntegrationEvent;
 
 /**
  * Publishes outbound integration events to aeroflow-core.
@@ -15,5 +15,5 @@ use App\Playback\Application\IntegrationEvent\AnnouncementPlaybackEvent;
  */
 interface PlaybackEventPublisherInterface
 {
-    public function publish(AnnouncementPlaybackEvent $event): void;
+    public function publish(PlaybackIntegrationEvent $event): void;
 }

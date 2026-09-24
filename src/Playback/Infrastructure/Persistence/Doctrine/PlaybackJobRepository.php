@@ -42,16 +42,22 @@ final readonly class PlaybackJobRepository implements PlaybackJobRepositoryInter
             ->findOneBy(['status' => PlaybackJobStatus::Playing]);
     }
 
-    public function findNextPendingForUpdate(): ?PlaybackJob
+    public function findNextPendingForUpdate(?int $minPriority = null): ?PlaybackJob
     {
         // PESSIMISTIC_WRITE serialises concurrent dispatchers on the same head-of-queue
         // row: the loser waits, re-reads the row and finds it no longer Pending. The
         // partial unique index on the single Playing row is the last-resort guard.
-        $jobs = $this->entityManager->createQueryBuilder()
+        $builder = $this->entityManager->createQueryBuilder()
             ->select('job')
             ->from(PlaybackJob::class, 'job')
             ->where('job.status = :status')
-            ->setParameter('status', PlaybackJobStatus::Pending)
+            ->setParameter('status', PlaybackJobStatus::Pending);
+
+        if ($minPriority !== null) {
+            $builder->andWhere('job.priority >= :minPriority')->setParameter('minPriority', $minPriority);
+        }
+
+        $jobs = $builder
             ->orderBy('job.priority', 'DESC')
             ->addOrderBy('job.createdAt', 'ASC')
             ->addOrderBy('job.id', 'ASC')

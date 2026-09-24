@@ -9,6 +9,7 @@ use App\Playback\Application\Agent\PlayAudioSequence;
 use App\Playback\Application\Agent\StopAudioPlayback;
 use App\Playback\Application\IntegrationEvent\AnnouncementPlaybackStarted;
 use App\Playback\Domain\Entity\PlaybackJob;
+use App\Playback\Domain\Repository\EmergencyModeRepositoryInterface;
 use App\Playback\Domain\Repository\PlaybackJobRepositoryInterface;
 
 /**
@@ -24,6 +25,11 @@ use App\Playback\Domain\Repository\PlaybackJobRepositoryInterface;
  * loaded with a write lock, started, announced to core and sent to the audio agent
  * as PlayAudioSequence (task 016). The agent's completed/failed report — or the
  * operator stub — finishes the job via CompletePlaybackJob / FailPlaybackJob.
+ *
+ * Task 026 adds a second, independent restriction: while emergency mode holds, only
+ * jobs at or above PREEMPTIVE_PRIORITY are candidates at all. Preemption (025) stops
+ * what is already sounding; the mode additionally keeps ordinary jobs from starting
+ * on a free output until the dispatcher lifts it.
  */
 final readonly class PlaybackQueueDispatcher
 {
@@ -31,19 +37,26 @@ final readonly class PlaybackQueueDispatcher
         private PlaybackJobRepositoryInterface $jobs,
         private PlaybackEventPublisherInterface $events,
         private AgentCommandPublisherInterface $agent,
+        private EmergencyModeRepositoryInterface $emergencyModes,
     ) {
     }
 
     public function dispatchNext(): void
     {
+        // While the mode holds, the queue exists only for jobs at the reserved
+        // priority; everything else waits where it is.
+        $minPriority = $this->emergencyModes->current()->isActive()
+            ? PlaybackJob::PREEMPTIVE_PRIORITY
+            : null;
+
         $active = $this->jobs->findActive();
         if ($active !== null) {
-            $this->tryPreempt($active);
+            $this->tryPreempt($active, $minPriority);
 
             return;
         }
 
-        $next = $this->jobs->findNextPendingForUpdate();
+        $next = $this->jobs->findNextPendingForUpdate($minPriority);
         if ($next === null) {
             return;
         }
@@ -61,9 +74,9 @@ final readonly class PlaybackQueueDispatcher
      * here: it becomes a normal dispatchNext() candidate once the agent confirms the
      * physical stop and HandleInterruptPlaybackJob requeues the preempted job.
      */
-    private function tryPreempt(PlaybackJob $active): void
+    private function tryPreempt(PlaybackJob $active, ?int $minPriority): void
     {
-        $next = $this->jobs->findNextPendingForUpdate();
+        $next = $this->jobs->findNextPendingForUpdate($minPriority);
         if ($next === null
             || $next->getPriority() < PlaybackJob::PREEMPTIVE_PRIORITY
             || $next->getPriority() <= $active->getPriority()

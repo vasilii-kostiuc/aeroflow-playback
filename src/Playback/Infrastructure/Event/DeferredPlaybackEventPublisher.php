@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Playback\Infrastructure\Event;
 
-use App\Playback\Application\IntegrationEvent\AnnouncementPlaybackEvent;
+use App\Playback\Application\IntegrationEvent\PlaybackIntegrationEvent;
 use App\Playback\Application\PlaybackEventPublisherInterface;
 use App\Playback\Infrastructure\Messaging\MessengerPlaybackEventPublisher;
 
@@ -21,14 +21,14 @@ final class DeferredPlaybackEventPublisher implements PlaybackEventPublisherInte
 {
     private int $depth = 0;
 
-    /** @var list<AnnouncementPlaybackEvent> */
+    /** @var list<PlaybackIntegrationEvent> */
     private array $buffer = [];
 
     public function __construct(private readonly MessengerPlaybackEventPublisher $publisher)
     {
     }
 
-    public function publish(AnnouncementPlaybackEvent $event): void
+    public function publish(PlaybackIntegrationEvent $event): void
     {
         if ($this->depth === 0) {
             $this->publisher->publish($event);

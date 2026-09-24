@@ -30,8 +30,12 @@ interface PlaybackJobRepositoryInterface
      * createdAt (id as the final tie-break). Loaded with a write lock so two
      * concurrent dispatch attempts cannot both start it; the caller must therefore
      * run inside a transaction.
+     *
+     * $minPriority, when given, skips everything below that priority. It is used
+     * only while emergency mode holds the queue (task 026): ordinary jobs are then
+     * not candidates at all, even with the audio output free.
      */
-    public function findNextPendingForUpdate(): ?PlaybackJob;
+    public function findNextPendingForUpdate(?int $minPriority = null): ?PlaybackJob;
 
     /**
      * The most recent job created for an announcement, loaded with a write lock so

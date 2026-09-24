@@ -23,7 +23,7 @@ use Symfony\Component\Uid\Uuid;
  * nextAt kept schemaVersion at 1 — an optional field is backward compatible and a
  * consumer of the previous contract simply ignores it.
  */
-abstract readonly class AnnouncementPlaybackEvent
+abstract readonly class AnnouncementPlaybackEvent implements PlaybackIntegrationEvent
 {
     public string $messageId;
     public string $correlationId;
@@ -44,5 +44,10 @@ abstract readonly class AnnouncementPlaybackEvent
         $this->jobId = $job->getId()->toRfc4122();
         $this->occurredAt = new DateTimeImmutable()->format(DateTimeInterface::ATOM);
         $this->schemaVersion = 1;
+    }
+
+    final public function eventName(): string
+    {
+        return $this->event;
     }
 }
