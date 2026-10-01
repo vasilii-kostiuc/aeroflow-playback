@@ -7,6 +7,7 @@ namespace App\Tests\Application\Playback\Support;
 use App\Playback\Domain\Entity\PlaybackJob;
 use App\Playback\Domain\Enum\PlaybackJobStatus;
 use App\Playback\Domain\Repository\PlaybackJobRepositoryInterface;
+use DateTimeImmutable;
 use Symfony\Component\Uid\Uuid;
 
 final class InMemoryPlaybackJobRepository implements PlaybackJobRepositoryInterface
@@ -74,5 +75,24 @@ final class InMemoryPlaybackJobRepository implements PlaybackJobRepositoryInterf
             <=> [$a->getCreatedAt(), $a->getId()->toRfc4122()]);
 
         return $matching[0] ?? null;
+    }
+
+    public function countPending(): int
+    {
+        return count(array_filter(
+            $this->saved,
+            static fn (PlaybackJob $job): bool => PlaybackJobStatus::Pending === $job->getStatus(),
+        ));
+    }
+
+    public function findPlayingSince(): ?DateTimeImmutable
+    {
+        foreach ($this->saved as $job) {
+            if (PlaybackJobStatus::Playing === $job->getStatus()) {
+                return $job->getStartedAt();
+            }
+        }
+
+        return null;
     }
 }

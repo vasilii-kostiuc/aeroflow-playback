@@ -37,6 +37,18 @@ final class PlaybackJobTest extends TestCase
         self::assertTrue(Uuid::isValid($job->getId()->toRfc4122()));
     }
 
+    public function testStartRecordsWhenThePlayBegan(): void
+    {
+        $job = $this->pendingJob();
+        self::assertNull($job->getStartedAt());
+
+        $before = new DateTimeImmutable('-1 second');
+        $job->start();
+
+        self::assertNotNull($job->getStartedAt());
+        self::assertGreaterThanOrEqual($before, $job->getStartedAt());
+    }
+
     public function testStartMovesPendingJobToPlaying(): void
     {
         $job = $this->pendingJob();

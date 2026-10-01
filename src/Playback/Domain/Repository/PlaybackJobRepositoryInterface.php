@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Playback\Domain\Repository;
 
 use App\Playback\Domain\Entity\PlaybackJob;
+use DateTimeImmutable;
 use Symfony\Component\Uid\Uuid;
 
 interface PlaybackJobRepositoryInterface
@@ -44,4 +45,13 @@ interface PlaybackJobRepositoryInterface
      * practice — "latest" only disambiguates hypothetical redelivery leftovers.
      */
     public function findLatestByAnnouncementIdForUpdate(Uuid $announcementId): ?PlaybackJob;
+
+    /** Jobs waiting to play now (Pending), for the worker heartbeat (task 034). */
+    public function countPending(): int;
+
+    /**
+     * When the job now Playing began, or null when nothing plays. A scalar read, so a
+     * long-running worker never answers from a stale managed entity.
+     */
+    public function findPlayingSince(): ?DateTimeImmutable;
 }

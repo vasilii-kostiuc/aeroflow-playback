@@ -62,6 +62,7 @@ framework:
             # Every outbound integration event travels to core; commands stay local.
             App\Playback\Application\IntegrationEvent\AnnouncementPlaybackEvent: playback_events
             App\Playback\Application\IntegrationEvent\EmergencyModeEvent: playback_events
+            App\Playback\Application\IntegrationEvent\PlaybackHeartbeat: playback_events
             App\Playback\Application\Agent\PlayAudioSequence: agent_commands
             App\Playback\Application\Agent\StopAudioPlayback: agent_commands
             App\Playback\Application\WakeScheduledPlaybackJob: scheduler

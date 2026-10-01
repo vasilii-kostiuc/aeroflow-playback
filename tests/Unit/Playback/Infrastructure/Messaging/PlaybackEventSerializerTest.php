@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Unit\Playback\Infrastructure\Messaging;
 
 use App\Playback\Application\IntegrationEvent\AnnouncementPlaybackQueued;
+use App\Playback\Application\IntegrationEvent\PlaybackHeartbeat;
 use App\Playback\Domain\Entity\PlaybackJob;
 use App\Playback\Infrastructure\Messaging\PlaybackEventSerializer;
 use LogicException;
@@ -52,5 +53,20 @@ final class PlaybackEventSerializerTest extends TestCase
         $this->expectException(LogicException::class);
 
         new PlaybackEventSerializer()->encode(new Envelope(new stdClass()));
+    }
+
+    public function testEncodesWorkerHeartbeatWithoutJob(): void
+    {
+        $encoded = new PlaybackEventSerializer()->encode(new Envelope(
+            new PlaybackHeartbeat(['announcement_playback', 'agent_events', 'scheduler'], 2, '2026-09-25T10:00:00+00:00'),
+        ));
+
+        $body = json_decode($encoded['body'], true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame('playback.heartbeat', $body['event']);
+        self::assertSame(['announcement_playback', 'agent_events', 'scheduler'], $body['transports']);
+        self::assertSame(2, $body['pendingJobs']);
+        self::assertSame('2026-09-25T10:00:00+00:00', $body['playingSince']);
+        self::assertArrayNotHasKey('jobId', $body);
+        self::assertSame('playback.heartbeat', $encoded['headers']['type']);
     }
 }
