@@ -92,6 +92,14 @@ class PlaybackJob
     #[ORM\Column]
     private DateTimeImmutable $createdAt;
 
+    /**
+     * When the current (or last) play began — set on every Pending -> Playing, so a
+     * repeatable job carries its current tick. Reported in the worker heartbeat
+     * (task 034): a job playing for far too long means the agent likely hung.
+     */
+    #[ORM\Column(nullable: true)]
+    private ?DateTimeImmutable $startedAt = null;
+
     #[ORM\Column(options: ['default' => false])]
     private bool $stopRequested = false;
 
@@ -164,6 +172,7 @@ class PlaybackJob
         }
 
         $this->status = PlaybackJobStatus::Playing;
+        $this->startedAt = new DateTimeImmutable();
     }
 
     /**
@@ -446,5 +455,10 @@ class PlaybackJob
     public function getCreatedAt(): DateTimeImmutable
     {
         return $this->createdAt;
+    }
+
+    public function getStartedAt(): ?DateTimeImmutable
+    {
+        return $this->startedAt;
     }
 }

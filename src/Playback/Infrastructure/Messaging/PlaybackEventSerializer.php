@@ -6,6 +6,7 @@ namespace App\Playback\Infrastructure\Messaging;
 
 use App\Playback\Application\IntegrationEvent\AnnouncementPlaybackEvent;
 use App\Playback\Application\IntegrationEvent\EmergencyModeEvent;
+use App\Playback\Application\IntegrationEvent\PlaybackHeartbeat;
 use LogicException;
 use Symfony\Component\Messenger\Envelope;
 use Symfony\Component\Messenger\Transport\Serialization\SerializerInterface;
@@ -16,14 +17,25 @@ use Symfony\Component\Messenger\Transport\Serialization\SerializerInterface;
  * The `event` field inside the body is the discriminator; Core must not depend on
  * this service's PHP class names, so no `type` header is required for consumption
  * (one is still set for observability in the RabbitMQ UI). Emergency mode reports
- * (task 026) share the queue but not the shape: being global, they carry no
- * announcement and no job.
+ * (task 026) and worker heartbeats (task 034) share the queue but not the shape:
+ * being global, they carry no announcement and no job.
  */
 final class PlaybackEventSerializer implements SerializerInterface
 {
     public function encode(Envelope $envelope): array
     {
         $message = $envelope->getMessage();
+        if ($message instanceof PlaybackHeartbeat) {
+            return $this->body([
+                'event' => $message->event,
+                'messageId' => $message->messageId,
+                'occurredAt' => $message->occurredAt,
+                'schemaVersion' => $message->schemaVersion,
+                'transports' => $message->transports,
+                'pendingJobs' => $message->pendingJobs,
+                'playingSince' => $message->playingSince,
+            ], $message->event);
+        }
         if ($message instanceof EmergencyModeEvent) {
             return $this->body([
                 'event' => $message->event,

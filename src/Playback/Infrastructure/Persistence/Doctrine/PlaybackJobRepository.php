@@ -7,6 +7,7 @@ namespace App\Playback\Infrastructure\Persistence\Doctrine;
 use App\Playback\Domain\Entity\PlaybackJob;
 use App\Playback\Domain\Enum\PlaybackJobStatus;
 use App\Playback\Domain\Repository\PlaybackJobRepositoryInterface;
+use DateTimeImmutable;
 use Doctrine\DBAL\LockMode;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Uid\Uuid;
@@ -84,5 +85,24 @@ final readonly class PlaybackJobRepository implements PlaybackJobRepositoryInter
             ->getResult();
 
         return $jobs[0] ?? null;
+    }
+
+    public function countPending(): int
+    {
+        return $this->entityManager->getRepository(PlaybackJob::class)->count(['status' => PlaybackJobStatus::Pending]);
+    }
+
+    public function findPlayingSince(): ?DateTimeImmutable
+    {
+        $startedAt = $this->entityManager->createQueryBuilder()
+            ->select('j.startedAt')
+            ->from(PlaybackJob::class, 'j')
+            ->where('j.status = :playing')
+            ->setParameter('playing', PlaybackJobStatus::Playing)
+            ->setMaxResults(1)
+            ->getQuery()
+            ->getOneOrNullResult();
+
+        return is_array($startedAt) && $startedAt['startedAt'] instanceof DateTimeImmutable ? $startedAt['startedAt'] : null;
     }
 }
