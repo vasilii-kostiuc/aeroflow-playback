@@ -1,0 +1,12 @@
+.git
+.gitignore
+.editorconfig
+var
+vendor
+docker-compose*.yml
+*.md
+tests
+.phpunit*
+.php-cs-fixer*
+.env.local
+.env.*.local
