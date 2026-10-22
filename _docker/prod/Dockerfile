@@ -1,7 +1,10 @@
 # Production image: code and prod-only dependencies baked in. Playback has no
 # HTTP surface — the image runs Messenger workers (the deploy compose file sets
 # which transports each one consumes) and the migrations.
-FROM php:8.5-cli
+#
+# Patch version pinned: 8.5.12 fixes CVE-2026-109618/109619 (unauthenticated
+# RCE in PHP request handling). Raise it on every PHP security release.
+FROM php:8.5.12-cli
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libpq-dev \
